@@ -7,6 +7,8 @@
     confirm-chapter <章号>      把草稿去头（去 frontmatter + 控制卡）生成正稿到 chapters/final/<卷>/，
                                  并把该章 status 改成"已确认"（正稿只能由此命令生成，不要手工复制/编辑）
     wordcount [--write]         统计每章字数（--write 写回草稿 frontmatter 与 chapters/_index.md）
+    catalog [--refresh]         构建/检查增量章节元数据缓存
+    stats                       从章节元数据快速查看分卷与总进度
     reindex                     重建 characters/worldbuilding/plot/chapters 各 _index.md 表格
     lint                        轻量一致性检查（含"已确认章节的正稿是否存在/是否与草稿同步"）
     compile [--out FILE]        按章节号顺序拼出所有"已确认"章节的正稿为完整稿件
@@ -16,6 +18,8 @@
 用法示例：
     python3 scripts/story.py new-chapter 1 第一章标题
     python3 scripts/story.py wordcount --write
+    python3 scripts/story.py catalog
+    python3 scripts/story.py stats
     python3 scripts/story.py lint
     python3 scripts/story.py confirm-chapter 1
     python3 scripts/story.py reindex
@@ -28,6 +32,7 @@
 
 import argparse
 from dataclasses import dataclass
+import json
 import re
 import sys
 import tempfile
@@ -55,6 +60,62 @@ QUESTIONS_ARCHIVE = ARCHIVE_DIR / "questions.md"
 MIGRATION_MAP = ARCHIVE_DIR / "migration-map.md"
 QUALITY_RULES = ROOT / "references" / "style-guide.md"
 CONTEXT_CACHE_DIR = ROOT / ".story-cache"
+PROJECT_CONFIG_PATH = ROOT / "novel-project.json"
+CHAPTER_CATALOG_PATH = CONTEXT_CACHE_DIR / "chapter-catalog-v1.json"
+
+DEFAULT_PROJECT_CONFIG = {
+    "schema_version": 1,
+    "template_version": "1.1.0",
+    "mode": "template",
+    "context": {
+        "default_max_chars": 35000,
+        "p2_reserve_plan_chars": 1000,
+        "p2_reserve_other_chars": 3000,
+        "previous_ending_chars": 1800,
+        "voice_sample_chars": 4500,
+    },
+    "limits": {
+        "story_bytes": 10000,
+        "state_bytes": 15000,
+        "promises_bytes": 10000,
+        "questions_bytes": 6000,
+        "style_guide_bytes": 12000,
+        "core_total_bytes": 50000,
+        "character_source_protagonist_bytes": 12000,
+        "character_source_other_bytes": 10000,
+        "character_hot_protagonist_bytes": 8500,
+        "character_hot_other_bytes": 6000,
+    },
+    "writing": {"target_total_words": 0},
+}
+
+
+def _deep_merge(base, override):
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def load_project_config():
+    """读取项目级配置；缺少新字段时使用兼容默认值。"""
+    if not PROJECT_CONFIG_PATH.exists():
+        return _deep_merge({}, DEFAULT_PROJECT_CONFIG)
+    try:
+        supplied = json.loads(PROJECT_CONFIG_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"无法读取 {PROJECT_CONFIG_PATH.name}: {exc}") from exc
+    if not isinstance(supplied, dict):
+        raise RuntimeError(f"{PROJECT_CONFIG_PATH.name} 顶层必须是 JSON 对象")
+    return _deep_merge(DEFAULT_PROJECT_CONFIG, supplied)
+
+
+PROJECT_CONFIG = load_project_config()
+CONTEXT_CONFIG = PROJECT_CONFIG["context"]
+LIMIT_CONFIG = PROJECT_CONFIG["limits"]
 
 CONTEXT_TASKS = ("plan", "write", "revise", "review", "direction")
 CONTEXT_PRIORITIES = ("P0", "P1", "P2")
@@ -63,8 +124,8 @@ DIRECTION_PIPELINE_SECTION = "方向冷人物候选池"
 ACTIVE_PROMISE_STATUSES = {"待回收", "阶段性推进", "长线", "待确认归档"}
 ACTIVE_QUESTION_STATUSES = {"未解答", "阶段性推进", "长线", "待确认归档"}
 
-# state.md 在第42章归档瘦身时改过标题。上下文与 lint 必须同时兼容现行
-# 标题和旧项目标题；否则 Markdown 仍然存在，脚本却会把整张表静默漏掉。
+# state.md 的表头可能随项目演进改名。上下文与 lint 同时兼容现行标题和
+# 旧版模板标题；否则 Markdown 仍然存在，脚本却会把整张表静默漏掉。
 STATE_SECTION_ALIASES = {
     "人物位置、目标与边界": ("人物位置、目标与边界", "人物状态"),
     "活跃物品与文书": ("活跃物品与文书", "活跃物品与资源", "物品状态"),
@@ -86,11 +147,6 @@ PROSE_STYLE_LINT_RULES = (
         "叙事层级穿帮",
         re.compile(r"(?:第[一二三四五六七八九十百0-9]+章|本章|上一章|下一章)"),
         "正文人物和旁白不能直接读取稿件的章节编号；请改成剧情内的日期、先后或事件",
-    ),
-    (
-        "省字歧义",
-        re.compile(r"(?:伤口(?:转眼|很快|一下子|自己)?(?:就)?合了|那就是会合)"),
-        "不要把“伤口愈合”省成“合了/会合”，请把动作结果说完整",
     ),
 )
 
@@ -354,9 +410,8 @@ def cmd_new_chapter(args):
     volume = int(args.volume) if re.fullmatch(r"-?\d+", args.volume) else args.volume
     title = args.title
     max_chapter = 0
-    for path in iter_chapter_files():
-        fm, _, _ = read_doc(path)
-        ch = fm.get("chapter")
+    for chapter in _load_chapters(full=False):
+        ch = chapter["fm"].get("chapter")
         if isinstance(ch, int) and ch > max_chapter:
             max_chapter = ch
     next_chapter = max_chapter + 1
@@ -402,13 +457,110 @@ promises-paid: []
     return 0
 
 
-def _load_chapters():
+def _read_chapter_catalog():
+    if not CHAPTER_CATALOG_PATH.exists():
+        return {}
+    try:
+        payload = json.loads(CHAPTER_CATALOG_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if payload.get("version") != 1 or not isinstance(payload.get("entries"), dict):
+        return {}
+    return payload["entries"]
+
+
+def _load_chapters(full=True, refresh=False, with_stats=False):
+    """读取章节。
+
+    `full=False` 只读取 frontmatter，并用文件尺寸与纳秒修改时间复用缓存；
+    正文在真正需要时由 `_hydrate_chapter` 单章加载。缓存只保存派生元数据，
+    删除即可重建，不是事实源。
+    """
     chapters = []
+    old_entries = {} if full or refresh else _read_chapter_catalog()
+    new_entries = {}
+    stats = {"total": 0, "reused": 0, "refreshed": 0, "pruned": 0}
     for path in iter_chapter_files():
-        fm, body, text = read_doc(path)
+        stats["total"] += 1
+        rel = path.relative_to(ROOT).as_posix()
+        if full:
+            fm, body, text = read_doc(path)
+        else:
+            stat = path.stat()
+            cached = old_entries.get(rel)
+            if (
+                cached
+                and cached.get("mtime_ns") == stat.st_mtime_ns
+                and cached.get("size") == stat.st_size
+                and isinstance(cached.get("frontmatter"), dict)
+            ):
+                fm = cached["frontmatter"]
+                stats["reused"] += 1
+            else:
+                fm, _, _ = read_doc(path)
+                stats["refreshed"] += 1
+            new_entries[rel] = {
+                "mtime_ns": stat.st_mtime_ns,
+                "size": stat.st_size,
+                "frontmatter": fm,
+            }
+            body = text = None
         chapters.append({"path": path, "fm": fm, "body": body, "text": text})
     chapters.sort(key=lambda c: (c["fm"].get("chapter") if isinstance(c["fm"].get("chapter"), int) else 0))
-    return chapters
+    if not full:
+        stats["pruned"] = len(set(old_entries) - set(new_entries))
+        payload = {"version": 1, "entries": new_entries}
+        _atomic_write_text(
+            CHAPTER_CATALOG_PATH,
+            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        )
+    return (chapters, stats) if with_stats else chapters
+
+
+def _hydrate_chapter(chapter):
+    """按需为元数据章节补齐正文，避免上下文任务先扫完整章库。"""
+    if chapter.get("body") is None or chapter.get("text") is None:
+        fm, body, text = read_doc(chapter["path"])
+        chapter.update({"fm": fm, "body": body, "text": text})
+    return chapter
+
+
+def cmd_catalog(args):
+    _, stats = _load_chapters(full=False, refresh=args.refresh, with_stats=True)
+    print(
+        "章节目录缓存："
+        f"{stats['total']} 章，复用 {stats['reused']}，刷新 {stats['refreshed']}，"
+        f"清理 {stats['pruned']}"
+    )
+    return 0
+
+
+def cmd_stats(args):
+    """用 frontmatter 快速汇总进度；精确字数先运行 `wordcount --write`。"""
+    chapters = _load_chapters(full=False)
+    total_words = sum(
+        c["fm"].get("word-count")
+        for c in chapters
+        if isinstance(c["fm"].get("word-count"), int)
+    )
+    confirmed = sum(c["fm"].get("status") == "已确认" for c in chapters)
+    drafts = len(chapters) - confirmed
+    by_volume = {}
+    for chapter in chapters:
+        volume = str(chapter["fm"].get("volume") or "未分卷")
+        bucket = by_volume.setdefault(volume, {"chapters": 0, "words": 0})
+        bucket["chapters"] += 1
+        words = chapter["fm"].get("word-count")
+        bucket["words"] += words if isinstance(words, int) else 0
+    print(f"进度：{len(chapters)} 章（已确认 {confirmed}，未确认 {drafts}），登记字数 {total_words}")
+    for volume, bucket in sorted(by_volume.items()):
+        print(f"- 卷 {volume}: {bucket['chapters']} 章，{bucket['words']} 字")
+    target = PROJECT_CONFIG.get("writing", {}).get("target_total_words") or 0
+    if isinstance(target, int) and target > 0:
+        percent = min(100.0, total_words / target * 100)
+        print(f"- 全书目标: {total_words}/{target}（{percent:.1f}%）")
+    print("提示：这是 frontmatter 登记值；需精确刷新时运行 `wordcount --write`。")
+    return 0
 
 
 def cmd_wordcount(args):
@@ -468,7 +620,7 @@ def _write_chapters_index(chapters):
 
 def cmd_confirm_chapter(args):
     target = args.chapter
-    chapters = _load_chapters()
+    chapters = _load_chapters(full=False)
     matches = [c for c in chapters if c["fm"].get("chapter") == target]
     if not matches:
         print(f"错误：chapters/drafts/ 下没有找到第 {target} 章", file=sys.stderr)
@@ -478,7 +630,7 @@ def cmd_confirm_chapter(args):
         print(f"错误：第 {target} 章有重复文件（{paths}），请先处理重复再确认", file=sys.stderr)
         return 1
 
-    c = matches[0]
+    c = _hydrate_chapter(matches[0])
     fm, body, text = c["fm"], c["body"], c["text"]
 
     final_path = final_chapter_path(fm)
@@ -489,7 +641,7 @@ def cmd_confirm_chapter(args):
     if new_text != text:
         c["path"].write_text(new_text, encoding="utf-8")
 
-    _write_chapters_index(_load_chapters())
+    _write_chapters_index(_load_chapters(full=False))
 
     print(f"已生成正稿 {final_path.relative_to(ROOT)}")
     print(f"已将 {c['path'].relative_to(ROOT)} 的 status 改为 已确认")
@@ -514,7 +666,7 @@ def _write_generic_index(directory, index_path, header_md, columns, row_builder,
 
 
 def cmd_reindex(args):
-    _write_chapters_index(_load_chapters())
+    _write_chapters_index(_load_chapters(full=False))
     print("已重建 chapters/_index.md")
 
     _write_generic_index(
@@ -824,7 +976,7 @@ def _worldbuilding_write_view(path):
     return frontmatter + "\n".join(parts).strip() + "\n"
 
 
-def _voice_sample(chapters, chapter_number, max_chars=4500):
+def _voice_sample(chapters, chapter_number, max_chars=None):
     """从一章已确认正文中截取限长声口样本，不把它当作事实来源。"""
     if chapter_number is None:
         return None, ""
@@ -833,6 +985,8 @@ def _voice_sample(chapters, chapter_number, max_chars=4500):
         raise ValueError(f"声口样章不存在：第{chapter_number}章")
     if chapter["fm"].get("status") != "已确认":
         raise ValueError(f"声口样章必须已经确认：第{chapter_number}章")
+    _hydrate_chapter(chapter)
+    max_chars = max_chars or CONTEXT_CONFIG["voice_sample_chars"]
     prose = extract_final_prose(chapter["body"]).strip()
     if not prose:
         raise ValueError(f"声口样章没有可读取正文：第{chapter_number}章")
@@ -1076,7 +1230,7 @@ def _recent_summaries(chapters, chapter, count=2):
     return "\n".join(lines) + "\n"
 
 
-def _recent_ending(chapters, chapter, max_chars=1800):
+def _recent_ending(chapters, chapter, max_chars=None):
     """保留上一章的收束语气和人物动作。
 
     摘要只能说明“发生了什么”，不能代替正文中已经建立的情绪、
@@ -1086,6 +1240,8 @@ def _recent_ending(chapters, chapter, max_chars=1800):
     if not rows:
         return ""
     previous = max(rows, key=lambda c: c["fm"]["chapter"])
+    _hydrate_chapter(previous)
+    max_chars = max_chars or CONTEXT_CONFIG["previous_ending_chars"]
     prose = extract_final_prose(previous["body"]).strip()
     if not prose:
         return ""
@@ -1184,8 +1340,13 @@ def _render_context_package(task, chapter, focuses, candidates, targets, max_cha
     selected, omitted = [], []
     used = 0
     for priority in CONTEXT_PRIORITIES:
+        p2_reserve = (
+            CONTEXT_CONFIG["p2_reserve_plan_chars"]
+            if task in ("plan", "direction")
+            else CONTEXT_CONFIG["p2_reserve_other_chars"]
+        )
         priority_limit = (
-            max_chars - (1000 if task in ("plan", "direction") else 3000)
+            max_chars - p2_reserve
             if priority == "P2"
             else max_chars
         )
@@ -1282,8 +1443,9 @@ def _frontmatter_profile_order(fm, character_map):
     return ordered
 
 
-def build_context(task, chapter, focuses=None, includes=None, max_chars=35000, voice_chapter=None):
-    chapters = _load_chapters()
+def build_context(task, chapter, focuses=None, includes=None, max_chars=None, voice_chapter=None):
+    max_chars = max_chars or CONTEXT_CONFIG["default_max_chars"]
+    chapters = _load_chapters(full=False)
     target = _chapter_by_number(chapters, chapter)
     focuses = list(focuses or [])
     includes = list(includes or [])
@@ -1438,8 +1600,10 @@ def build_context(task, chapter, focuses=None, includes=None, max_chars=35000, v
 
     targets = []
     if target and task in ("revise", "review"):
+        _hydrate_chapter(target)
         targets.append(ContextCandidate("TARGET", "目标章节全文", target["path"], target["text"], "目标正文，不计辅助预算"))
     elif target and task == "write":
+        _hydrate_chapter(target)
         control_card = _control_card_view(target["body"])
         if control_card:
             candidates.append(ContextCandidate(
@@ -1621,12 +1785,13 @@ def cmd_context(args):
 
 
 def cmd_context_audit(args):
+    default_context_limit = CONTEXT_CONFIG["default_max_chars"]
     limits = {
-        ROOT / "story.md": 10000,
-        STATE_PATH: 15000,
-        PROMISES_INDEX: 10000,
-        QUESTIONS_INDEX: 6000,
-        QUALITY_RULES: 12000,
+        ROOT / "story.md": LIMIT_CONFIG["story_bytes"],
+        STATE_PATH: LIMIT_CONFIG["state_bytes"],
+        PROMISES_INDEX: LIMIT_CONFIG["promises_bytes"],
+        QUESTIONS_INDEX: LIMIT_CONFIG["questions_bytes"],
+        QUALITY_RULES: LIMIT_CONFIG["style_guide_bytes"],
     }
     print("上下文体检")
     total = 0
@@ -1637,9 +1802,10 @@ def cmd_context_audit(args):
         status = "OK" if size <= limit else "超标"
         failed |= size > limit
         print(f"- {path.relative_to(ROOT)}: {size}/{limit} 字节 [{status}]")
-    total_status = "OK" if total <= 50000 else "超标"
-    print(f"- 核心常驻包合计: {total}/50000 字节 [{total_status}]")
-    failed |= total > 50000
+    core_total_limit = LIMIT_CONFIG["core_total_bytes"]
+    total_status = "OK" if total <= core_total_limit else "超标"
+    print(f"- 核心常驻包合计: {total}/{core_total_limit} 字节 [{total_status}]")
+    failed |= total > core_total_limit
 
     for path, resolved_words in ((PROMISES_INDEX, ("已回收",)), (QUESTIONS_INDEX, ("已解答",))):
         headers, rows = _parse_markdown_table(path)
@@ -1715,7 +1881,11 @@ def cmd_context_audit(args):
         size = len(path.read_bytes())
         raw_profile_total += size
         fm, _, _ = read_doc(path)
-        limit = 12000 if fm.get("role") in ("主角", "protagonist") else 10000
+        limit = (
+            LIMIT_CONFIG["character_source_protagonist_bytes"]
+            if fm.get("role") in ("主角", "protagonist")
+            else LIMIT_CONFIG["character_source_other_bytes"]
+        )
         if size > limit:
             oversized_source_profiles.append((path.name, size, limit))
         elif size >= limit * 0.8:
@@ -1730,7 +1900,11 @@ def cmd_context_audit(args):
         hot_cutoff = _character_hot_cutoff(path, archive_cutoff)
         hot_size = len(_character_hot_profile(path, hot_cutoff).encode("utf-8"))
         hot_profile_total += hot_size
-        hot_limit = 8500 if fm.get("role") in ("主角", "protagonist") else 6000
+        hot_limit = (
+            LIMIT_CONFIG["character_hot_protagonist_bytes"]
+            if fm.get("role") in ("主角", "protagonist")
+            else LIMIT_CONFIG["character_hot_other_bytes"]
+        )
         if hot_size > hot_limit:
             oversized_hot_profiles.append((path.name, hot_size, hot_limit))
         elif hot_size >= hot_limit * 0.8:
@@ -1780,10 +1954,10 @@ def cmd_context_audit(args):
     print(f"- 已完成但尚无历史归档的 arc: {len(completed)}")
     failed |= bool(completed)
 
-    max_chapter = max((c["fm"].get("chapter") or 0 for c in _load_chapters()), default=0)
+    max_chapter = max((c["fm"].get("chapter") or 0 for c in _load_chapters(full=False)), default=0)
     try:
-        chapters = _load_chapters()
-        _, selected, omitted = build_context("plan", max_chapter + 1, [], [], 35000)
+        chapters = _load_chapters(full=False)
+        _, selected, omitted = build_context("plan", max_chapter + 1, [], [], default_context_limit)
         estimate = sum(candidate.size for candidate in selected)
         previous = _chapter_by_number(chapters, max_chapter)
         chars = _character_file_map("standard")
@@ -1804,8 +1978,8 @@ def cmd_context_audit(args):
             if candidate.label.startswith("人物：") and candidate.path.stem in expected_profiles
         ]
         complete = not missing_profiles and has_state and has_ending and not omitted_direct_profiles
-        status = "OK" if estimate <= 35000 and complete else "缺项"
-        print(f"- 默认下一章计划包: {estimate}/35000 字符 [{status}]")
+        status = "OK" if estimate <= default_context_limit and complete else "缺项"
+        print(f"- 默认下一章计划包: {estimate}/{default_context_limit} 字符 [{status}]")
         if missing_profiles:
             print(f"  - 缺少上章人物热档: {'、'.join(missing_profiles)}")
         if omitted_direct_profiles:
@@ -1814,15 +1988,15 @@ def cmd_context_audit(args):
             print("  - 缺少完整当前状态/知情边界")
         if not has_ending:
             print("  - 缺少上章结尾原文")
-        failed |= estimate > 35000 or not complete
+        failed |= estimate > default_context_limit or not complete
     except ValueError as exc:
         print(f"- 默认上下文包: 失败（{exc}）")
         failed = True
 
-    latest = _chapter_by_number(_load_chapters(), max_chapter) if max_chapter else None
+    latest = _chapter_by_number(_load_chapters(full=False), max_chapter) if max_chapter else None
     if latest:
         try:
-            _, selected, omitted = build_context("write", max_chapter, [], [], 35000)
+            _, selected, omitted = build_context("write", max_chapter, [], [], default_context_limit)
             estimate = sum(candidate.size for candidate in selected)
             direct_characters = {str(x) for x in (latest["fm"].get("characters") or [])}
             direct_locations = {str(x) for x in (latest["fm"].get("locations") or [])}
@@ -1837,8 +2011,8 @@ def cmd_context_audit(args):
             ]
             has_state = any(candidate.label == "当前状态" for candidate in selected)
             has_quality_rules = sum(candidate.label == "写作质量规范" for candidate in selected) == 1
-            status = "OK" if estimate <= 35000 and has_state and has_quality_rules and not omitted_direct else "缺项"
-            print(f"- 最近章写作包: {estimate}/35000 字符 [{status}]")
+            status = "OK" if estimate <= default_context_limit and has_state and has_quality_rules and not omitted_direct else "缺项"
+            print(f"- 最近章写作包: {estimate}/{default_context_limit} 字符 [{status}]")
             if omitted_direct:
                 names = "、".join(candidate.path.stem for candidate in omitted_direct)
                 print(f"  - 省略章节直连资料: {names}")
@@ -1846,14 +2020,14 @@ def cmd_context_audit(args):
                 print("  - 缺少当前状态/完整知情边界")
             if not has_quality_rules:
                 print("  - 写作质量规范未且仅未载入一次")
-            failed |= estimate > 35000 or not has_state or not has_quality_rules or bool(omitted_direct)
+            failed |= estimate > default_context_limit or not has_state or not has_quality_rules or bool(omitted_direct)
         except ValueError as exc:
             print(f"- 最近章写作包: 失败（{exc}）")
             failed = True
 
         for task in ("revise", "review"):
             try:
-                _, selected, _ = build_context(task, max_chapter, [], [], 35000)
+                _, selected, _ = build_context(task, max_chapter, [], [], default_context_limit)
                 has_state = any(candidate.label == "当前状态" for candidate in selected)
                 has_quality_rules = sum(candidate.label == "写作质量规范" for candidate in selected) == 1
                 status = "OK" if has_state and has_quality_rules else "缺项"
@@ -2248,7 +2422,7 @@ def cmd_lint(args):
 
 def cmd_compile(args):
     """导出成稿：只拼"已确认"章节在 final/ 下的正稿，drafts 里未确认的章节不会被导出。"""
-    chapters = [c for c in _load_chapters() if c["fm"].get("status") == "已确认"]
+    chapters = [c for c in _load_chapters(full=False) if c["fm"].get("status") == "已确认"]
     out_path = Path(args.out)
     if not out_path.is_absolute():
         out_path = ROOT / out_path
@@ -2284,6 +2458,13 @@ def main():
     p_wc.add_argument("--write", action="store_true", help="写回 frontmatter 与 chapters/_index.md")
     p_wc.set_defaults(func=cmd_wordcount)
 
+    p_catalog = sub.add_parser("catalog", help="构建/检查可重建的章节元数据缓存")
+    p_catalog.add_argument("--refresh", action="store_true", help="忽略旧缓存并重新解析全部章节 frontmatter")
+    p_catalog.set_defaults(func=cmd_catalog)
+
+    p_stats = sub.add_parser("stats", help="从章节 frontmatter 快速汇总进度")
+    p_stats.set_defaults(func=cmd_stats)
+
     p_confirm = sub.add_parser("confirm-chapter", help="确认章节：从草稿生成正稿并把 status 改为 已确认")
     p_confirm.add_argument("chapter", type=int, help="章号（整数）")
     p_confirm.set_defaults(func=cmd_confirm_chapter)
@@ -2304,7 +2485,11 @@ def main():
     p_context.add_argument("--focus", action="append", default=[], help="显式关键词，可重复")
     p_context.add_argument("--include", action="append", default=[], help="强制纳入的项目内文件，可重复")
     p_context.add_argument("--voice-chapter", type=int, help="限长载入一章已确认正文作为声口样本；不作为事实来源")
-    p_context.add_argument("--max-chars", type=int, default=35000, help="辅助上下文字符预算（默认 35000）")
+    default_max_chars = CONTEXT_CONFIG["default_max_chars"]
+    p_context.add_argument(
+        "--max-chars", type=int, default=default_max_chars,
+        help=f"辅助上下文字符预算（项目默认 {default_max_chars}）",
+    )
     p_context.add_argument("--out", help="写入 .story-cache/ 下的路径；不填则输出到终端")
     p_context.set_defaults(func=cmd_context)
 

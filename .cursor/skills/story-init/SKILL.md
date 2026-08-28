@@ -30,5 +30,6 @@ description: >-
 1. 把回答填进 [`story.md`](../../../story.md) 的 frontmatter（`title`/`genre`/`pov`/`tense`/`tone`/`target-chapter-length`/`update-pace`/`status: active`）与正文各节。
 2. 按 [`references/entity-templates.md`](../../../references/entity-templates.md) 的人物模板，在 `characters/` 下创建主角文件。
 3. 在 [`plot/_index.md`](../../../plot/_index.md) 的分卷表里新增第一卷一行；按 arc 模板在 `plot/arcs/` 下创建第一卷的 arc 文件（目标、关键节点粗纲）。
-4. 运行 `python3 scripts/story.py reindex` 让人物/arc 注册表生效。
-5. 告知用户：现在可以说"写下一章"来触发 `chapter-writing`。
+4. 把 [`novel-project.json`](../../../novel-project.json) 的 `mode` 从 `template` 改为 `project`；若作者给出了全书目标字数，也写入 `writing.target_total_words`，否则保持 `0`。
+5. 运行 `python3 scripts/story.py reindex` 和 `python3 scripts/doctor.py`，让人物/arc 注册表生效并验证初始化结果。
+6. 告知用户：现在可以说"写下一章"来触发 `chapter-writing`。

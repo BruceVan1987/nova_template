@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "template_version": "1.1.0",
+  "mode": "template",
+  "context": {
+    "default_max_chars": 35000,
+    "p2_reserve_plan_chars": 1000,
+    "p2_reserve_other_chars": 3000,
+    "previous_ending_chars": 1800,
+    "voice_sample_chars": 4500
+  },
+  "limits": {
+    "story_bytes": 10000,
+    "state_bytes": 15000,
+    "promises_bytes": 10000,
+    "questions_bytes": 6000,
+    "style_guide_bytes": 12000,
+    "core_total_bytes": 50000,
+    "character_source_protagonist_bytes": 12000,
+    "character_source_other_bytes": 10000,
+    "character_hot_protagonist_bytes": 8500,
+    "character_hot_other_bytes": 6000
+  },
+  "writing": {
+    "target_total_words": 0
+  }
+}

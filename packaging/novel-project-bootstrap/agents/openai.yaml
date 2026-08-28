@@ -1,0 +1,4 @@
+interface:
+  display_name: "新建小说项目"
+  short_description: "从干净模板创建独立小说工作区，并完成结构验证与可选 Git 初始化"
+  default_prompt: "Use $novel-project-bootstrap to create and validate a clean novel-writing project in a new folder."
