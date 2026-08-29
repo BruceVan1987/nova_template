@@ -40,6 +40,8 @@
 7. 统计、索引和导出：`story-maintenance` 或 `scripts/story.py` 对应命令。
 8. 剧情分支整体回滚：仅在作者明确授权回滚点后使用 `story-branch-rollback`。
 
+章节正文的生成与改写是项目级串行临界区：任何时刻只能有一个正文执行者处理一章，不得把完整、局部或候选正文交给多个 subagent、任务或线程并行产出。唯一并行例外是 `chapter-writing` 定义的落笔前“关键角色立场推演”，其输出不得是可直接拼接或粘贴的正文。
+
 ## 维护原则
 
 - 正文质量规则只写入 `references/style-guide.md`。Skill、常驻规则和 reviewer 只引用，不复制同义条目。

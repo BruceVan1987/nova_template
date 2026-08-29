@@ -148,7 +148,35 @@ PROSE_STYLE_LINT_RULES = (
         re.compile(r"(?:第[一二三四五六七八九十百0-9]+章|本章|上一章|下一章)"),
         "正文人物和旁白不能直接读取稿件的章节编号；请改成剧情内的日期、先后或事件",
     ),
+    (
+        "工作台措辞穿帮",
+        re.compile(
+            r"(?:本章控制卡|章节控制卡|单元卡|人物弧|情绪落点|信息落点|叙事功能|"
+            r"反转节点|节奏点|阶段目标|推进(?:主线|支线|剧情)|关系(?:升级|变化)|"
+            r"风险上升|爽点|高光镜头|伏笔(?:回收|埋设)|回收伏笔)"
+        ),
+        "这是控制卡或章纲语言；请还原为具体人物的动作、信息入口和当场后果",
+    ),
+    (
+        "编辑标记残留",
+        re.compile(
+            r"(?:【|\[)\s*(?:TODO|待补|待写|待改|此处(?:补|写|扩写)|转场|扩写|删改)"
+            r"[^】\]\n]{0,40}(?:】|\])",
+            re.IGNORECASE,
+        ),
+        "正文中遗留了编辑或占位标记；请完成、删除或移回控制卡",
+    ),
 )
+
+# 下列词语可以出现在人物固定声口、引文或正式文书中，所以不作硬错。
+# 只在同一段落高密度出现时提醒人工冷读，避免全局搜索替换误伤历史语域。
+PROSE_ARCHAIC_MARKER_RE = re.compile(
+    r"(?:少顷|未几|遂|乃|旋即|言罢|闻言|其人|彼时|此番|若非|何故|莫要|休得|未应)"
+)
+PROSE_ARCHAIC_PARAGRAPH_THRESHOLD = 3
+PROSE_ELLIPSIS_WARNING_THRESHOLD = 5
+PROSE_SHORT_SENTENCE_MAX_CHARS = 9
+PROSE_SHORT_SENTENCE_RUN = 5
 
 
 # ---------------------------------------------------------------------------
@@ -220,6 +248,30 @@ def read_doc(path):
     text = path.read_text(encoding="utf-8")
     raw_fm, body = split_frontmatter(text)
     return parse_frontmatter(raw_fm), body, text
+
+
+def _story_is_setup():
+    """story.md 是否仍处于未初始化状态。
+
+    `novel-project.json` 的 mode 表示工作区用途，不能代替故事合同状态；
+    开写门禁只信 story.md frontmatter 中的显式 `status: setup`。
+    """
+    path = ROOT / "story.md"
+    if not path.exists():
+        return True
+    fm, _, _ = read_doc(path)
+    return str(fm.get("status") or "").strip() == "setup"
+
+
+def _reject_if_story_setup(action):
+    if not _story_is_setup():
+        return False
+    print(
+        f"错误：故事尚未初始化（story.md status: setup），不能{action}。"
+        "请先与作者确认故事合同，再使用 story-init 完成初始化。",
+        file=sys.stderr,
+    )
+    return True
 
 
 def _atomic_write_text(path, text):
@@ -388,6 +440,74 @@ def find_prose_style_issues(body):
     return issues
 
 
+def find_prose_style_warnings(body):
+    """返回需要语义冷读的正文声口风险。
+
+    这些特征在追逐、窒息、真实迟疑、文书引用或人物固定声口中可能成立，
+    因此只作每章汇总的非阻塞提示，不自动替换，也不单词判错。
+    """
+    prose_lines = extract_prose_lines(body)
+    warnings = []
+
+    dense_archaic = []
+    for line_no, line in enumerate(prose_lines, start=1):
+        matches = [match.group(0) for match in PROSE_ARCHAIC_MARKER_RE.finditer(line)]
+        if len(matches) >= PROSE_ARCHAIC_PARAGRAPH_THRESHOLD:
+            dense_archaic.append((line_no, matches))
+    if dense_archaic:
+        total = sum(len(matches) for _, matches in dense_archaic)
+        samples = "、".join(
+            f"第{line_no}行：{'/'.join(matches[:3])}"
+            for line_no, matches in dense_archaic[:3]
+        )
+        warnings.append((
+            dense_archaic[0][0],
+            "半文半白密度风险",
+            f"{total}处（{samples}）",
+            "请核对是否为文书引用或人物固定声口；若不是，把承载古意的句法改回现代白话",
+        ))
+
+    ellipses = []
+    for line_no, line in enumerate(prose_lines, start=1):
+        ellipses.extend((line_no, match.group(0)) for match in re.finditer(r"(?:……|\.{3,})", line))
+    if len(ellipses) >= PROSE_ELLIPSIS_WARNING_THRESHOLD:
+        sample_lines = "、".join(str(line_no) for line_no, _ in ellipses[:5])
+        warnings.append((
+            ellipses[0][0],
+            "省略号密度风险",
+            f"全章{len(ellipses)}处（前五处在第{sample_lines}行）",
+            "省略号只保留真正的迟疑、欲言又止或声音消失；中断用破折号，普通停顿用动作或句号",
+        ))
+
+    short_run = []
+    current_run = []
+    for line_no, line in enumerate(prose_lines, start=1):
+        for raw_sentence in re.split(r"(?<=[。！？!?])", line):
+            sentence = re.sub(r"[\s“”‘’。！？!?]", "", raw_sentence)
+            if not sentence:
+                continue
+            if len(sentence) <= PROSE_SHORT_SENTENCE_MAX_CHARS:
+                current_run.append((line_no, sentence))
+                if len(current_run) >= PROSE_SHORT_SENTENCE_RUN:
+                    short_run = list(current_run)
+                    break
+            else:
+                current_run = []
+        if short_run:
+            break
+        # Markdown 换行不一定等于场景断开，因此连续短句可以跨普通段落计数。
+    if short_run:
+        sample = " / ".join(sentence for _, sentence in short_run[:5])
+        warnings.append((
+            short_run[0][0],
+            "短句堆叠风险",
+            sample,
+            "请核对是否为有意加速；若不是，用动作因果、感官变化或转折关系合并部分句子",
+        ))
+
+    return warnings
+
+
 def set_frontmatter_field(text, field, new_value):
     """在 frontmatter 中设置某个标量字段的值（保留其余内容原样）。字段不存在则追加。"""
     raw_fm, body = split_frontmatter(text)
@@ -407,6 +527,8 @@ def set_frontmatter_field(text, field, new_value):
 # ---------------------------------------------------------------------------
 
 def cmd_new_chapter(args):
+    if _reject_if_story_setup("创建章节草稿"):
+        return 2
     volume = int(args.volume) if re.fullmatch(r"-?\d+", args.volume) else args.volume
     title = args.title
     max_chapter = 0
@@ -619,6 +741,8 @@ def _write_chapters_index(chapters):
 
 
 def cmd_confirm_chapter(args):
+    if _reject_if_story_setup("确认章节或生成正稿"):
+        return 2
     target = args.chapter
     chapters = _load_chapters(full=False)
     matches = [c for c in chapters if c["fm"].get("chapter") == target]
@@ -1071,7 +1195,7 @@ def _story_core(task=None):
     # 开写包只提供“这是什么故事”的核心，不把整份合同和禁写项当成
     # 场景素材。完整边界仍在 plan/revise/review 阶段载入并做事后审计。
     headings = (
-        ("一句话简介", "核心冲突")
+        ("一句话简介", "核心冲突", "基调与文风")
         if task == "write"
         else (
             "一句话简介", "世界/时代边界（硬约束）", "历史边界（硬约束）", "主角核心",
@@ -1760,6 +1884,10 @@ def cmd_context(args):
         if args.task != "direction":
             print("错误：除 direction 外，context 任务必须提供 --chapter", file=sys.stderr)
             return 2
+    if args.task in ("write", "revise") and _reject_if_story_setup(
+        f"生成 {args.task} 上下文包"
+    ):
+        return 2
     try:
         output, _, _ = build_context(
             args.task, chapter, args.focus, args.include, args.max_chars,
@@ -2233,6 +2361,10 @@ def cmd_lint(args):
             problems.append(
                 f"[{category}] {rel} 正文第{prose_line}行命中「{matched}」：{advice}"
             )
+        for prose_line, category, matched, advice in find_prose_style_warnings(c["body"]):
+            warnings.append(
+                f"[{category}] {rel} 从正文第{prose_line}行起命中「{matched}」：{advice}"
+            )
 
     headers, rows = _parse_markdown_table(PROMISES_INDEX)
     if headers and rows:
@@ -2410,7 +2542,7 @@ def cmd_lint(args):
         print(warning)
     if not problems:
         if warnings:
-            print(f"\n未发现问题。另有 {len(warnings)} 条非阻塞人物元数据提示。")
+            print(f"\n未发现问题。另有 {len(warnings)} 条非阻塞提示。")
         else:
             print("未发现问题。")
         return 0

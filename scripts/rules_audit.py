@@ -11,6 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 QUALITY_RULES = ROOT / "references" / "style-guide.md"
+CHAPTER_WRITING_SKILL = ROOT / ".cursor" / "skills" / "chapter-writing" / "SKILL.md"
 RETIRED_RULE_FILES = (
     "references/human-review-rules.md",
     "references/anti-ai-taste-checklist.md",
@@ -46,6 +47,19 @@ CANONICAL_ONLY_PHRASES = (
     "眼中闪过一丝",
 )
 MARKDOWN_LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+SERIAL_CHAPTER_REQUIREMENTS = (
+    ("单一正文执行者", re.compile(r"任何时刻只允许一个执行者.*章节正文")),
+    ("不并行生成完整或局部候选正文", re.compile(r"禁止并行生成同一章的任何完整、局部或候选正文.*只选一份")),
+    ("下章使用已回写状态", re.compile(r"第 N 章必须完成.*第 N\+1 章上下文")),
+    ("并行仅限关键角色立场推演", re.compile(r"唯一并行例外.*关键角色立场推演")),
+    ("角色推演不产出可拼接正文", re.compile(r"不得写完整场景.*可直接拼接的正文段落")),
+    ("主执行者收拢后独自落笔", re.compile(r"等全部角色推演返回.*独自锁定控制卡并写正文")),
+)
+GLOBAL_SERIAL_CHAPTER_REQUIREMENTS = (
+    ("项目级单一正文执行者", re.compile(r"章节正文的生成与改写是项目级串行临界区.*一个正文执行者")),
+    ("项目级唯一并行例外", re.compile(r"唯一并行例外.*关键角色立场推演")),
+    ("角色推演不可直接粘贴", re.compile(r"输出不得是可直接拼接或粘贴的正文")),
+)
 
 
 def rel(path: Path) -> str:
@@ -127,6 +141,19 @@ def main() -> int:
         if path.is_file() and "style-guide.md" not in path.read_text(encoding="utf-8"):
             errors.append(f"{rel(path)} 未引用唯一写作质量规范")
 
+    if not CHAPTER_WRITING_SKILL.is_file():
+        errors.append(f"章节写作 Skill 缺失：{rel(CHAPTER_WRITING_SKILL)}")
+    else:
+        chapter_skill_text = CHAPTER_WRITING_SKILL.read_text(encoding="utf-8")
+        for label, pattern in SERIAL_CHAPTER_REQUIREMENTS:
+            if not pattern.search(chapter_skill_text):
+                errors.append(f"章节写作缺少串行不变量：{label}")
+
+    agents_text = (ROOT / "AGENTS.md").read_text(encoding="utf-8") if (ROOT / "AGENTS.md").is_file() else ""
+    for label, pattern in GLOBAL_SERIAL_CHAPTER_REQUIREMENTS:
+        if not pattern.search(agents_text):
+            errors.append(f"项目级章节串行规则缺失：{label}")
+
     for phrase in CANONICAL_ONLY_PHRASES:
         for path in RULE_ENTRYPOINTS:
             if path.is_file() and phrase in path.read_text(encoding="utf-8"):
@@ -165,6 +192,7 @@ def main() -> int:
     print("规则审计通过：")
     print("- 正文质量只有 references/style-guide.md 一个事实源")
     print("- write 只载正向开写视图，revise/review 载入完整冷读规范")
+    print("- 章节正文只能串行生成，并行仅限落笔前的关键角色立场推演")
     print("- 旧规则文件与引用均已清除")
     print("- 本地 Markdown 链接有效")
     if chapter is not None:
