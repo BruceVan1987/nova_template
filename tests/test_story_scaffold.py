@@ -171,7 +171,8 @@ class EmptyScaffoldTests(unittest.TestCase):
         view = story._quality_rules_view("write")
         self.assertIn("现代标准汉语句法", view)
         self.assertIn("省略号只表示真正的迟疑", view)
-        self.assertIn("关键情绪不能只存在于台词", view)
+        self.assertIn("人物不只在开口时存在", view)
+        self.assertIn("情绪释放服从处境", view)
         self.assertIn("控制卡、章纲和状态文件只提供因果", view)
         self.assertNotIn("## 6. 高频 AI 痕迹", view)
 

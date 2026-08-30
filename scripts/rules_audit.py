@@ -45,6 +45,7 @@ CANONICAL_ONLY_PHRASES = (
     "熟而写生",
     "分派—执行—汇报—验收",
     "眼中闪过一丝",
+    "人物不只在开口时存在",
 )
 MARKDOWN_LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
 SERIAL_CHAPTER_REQUIREMENTS = (
