@@ -83,3 +83,5 @@ python3 scripts/story.py ready-chapter <章号>
 `ready-chapter` 核对当前版冷读记录并运行 `lint`，成功后才把草稿 status 置为 `待审核`；不手改状态绕过入口。记录就绪不代表正文质量通过。只有用户明确确认，才运行 `python3 scripts/story.py confirm-chapter <章号>`。
 
 连续写多章时，每章串行重复上述全部流程，并维护本轮内部跨章表：日期、人物位置、物品、知识与权限。不能先并行写完整批正文，再一次性回填跨章状态。
+
+逐章实际经过、旁听者与钱物执行账写入 `continuity/scene-log.md` 对应章号段；人物档案、当前状态、地理和活跃悬念只存当前有效事实。规划中的候选路径不登记成已发生事实。

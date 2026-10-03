@@ -13,6 +13,34 @@ from pathlib import Path
 CHAPTER_RE = re.compile(r"^chapter:\s*(\d+)\s*$", re.MULTILINE)
 FINAL_RE = re.compile(r"^(\d{4})-")
 FIRST_RE = re.compile(r'^first-appearance:\s*["\']?(\d+)["\']?\s*$', re.MULTILINE)
+SCENE_HEADING_RE = re.compile(r"^##\s+(\d{4})(?:\s*[—–-]\s*(\d{4}))?")
+VOICE_CHAPTER_RE = re.compile(r"^-\s*章节[：:]\s*(\d+)\s*$", re.MULTILINE)
+
+
+def split_scene_log(text: str, target: int) -> tuple[str, list[str], list[str]]:
+    """按章号切分现场记录。
+
+    返回 (保留文本, 移除的段标题, 跨越回滚点、需人工语义审查的段标题)。
+    起始章晚于回滚点的段属于废弃分支，整段移除；完整原文仍在备份 Git 引用里。
+    """
+    kept, removed, straddling = [], [], []
+    dropping = False
+    for line in text.splitlines():
+        match = SCENE_HEADING_RE.match(line)
+        if match:
+            start = int(match.group(1))
+            end = int(match.group(2)) if match.group(2) else start
+            dropping = start > target
+            if dropping:
+                removed.append(line)
+                continue
+            if end > target:
+                straddling.append(line.strip())
+        elif line.startswith("# "):
+            dropping = False
+        if not dropping:
+            kept.append(line)
+    return "\n".join(kept).rstrip() + "\n", [h.strip() for h in removed], straddling
 
 
 def git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -87,6 +115,25 @@ def main() -> int:
     for first, path in late_characters:
         print(f"  - 第{first}章 {path.relative_to(root)}")
 
+    scene_log = root / "continuity/scene-log.md"
+    scene_kept, scene_removed, scene_straddling = (
+        split_scene_log(scene_log.read_text(encoding="utf-8"), args.target)
+        if scene_log.exists() else ("", [], [])
+    )
+    print(f"现场记录待移除段: {len(scene_removed)}")
+    for heading in scene_removed:
+        print(f"  - {heading}")
+    for heading in scene_straddling:
+        print(f"  ! 跨越回滚点，需人工删去回滚点之后的内容：{heading}")
+
+    voice_file = root / "references/voice-samples.md"
+    late_voices = [
+        int(number) for number in VOICE_CHAPTER_RE.findall(voice_file.read_text(encoding="utf-8"))
+        if int(number) > args.target
+    ] if voice_file.exists() else []
+    for number in late_voices:
+        print(f"  ! 默认声口样本引用了第{number}章，回滚后必须换成回滚点以前的已确认章节")
+
     if not args.apply:
         print("仅预览；加 --apply 才移除章节文件。")
         return 0
@@ -95,7 +142,6 @@ def main() -> int:
     skill_prefixes = (
         "?? .cursor/skills/story-branch-rollback/",
         "?? .agents/skills/story-branch-rollback",
-        "?? plot/material-bank-post-0041.md",
     )
     unexpected = [
         line for line in dirty.stdout.splitlines()
@@ -108,12 +154,14 @@ def main() -> int:
 
     for path in old_drafts + old_finals:
         path.unlink()
+    if scene_removed:
+        scene_log.write_text(scene_kept, encoding="utf-8")
     for directory in sorted(
         {path.parent for path in old_drafts + old_finals}, reverse=True
     ):
         if directory.exists() and not any(directory.iterdir()):
             directory.rmdir()
-    print("已移除旧分支章节；人物与连续性仍须按 Skill 语义回滚。")
+    print("已移除旧分支章节与现场记录段；人物与连续性仍须按 Skill 语义回滚。")
     return 0
 
 

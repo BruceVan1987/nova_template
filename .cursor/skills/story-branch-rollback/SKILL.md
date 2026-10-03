@@ -45,3 +45,5 @@ description: >-
 - 备份 Git 引用可读到旧章；素材库每项有重启用条件。
 - `state.md` 的 `last-updated-chapter`、人物位置、物品最后更新章及活跃台账与新的最后一章一致。
 - `python3 scripts/story.py lint` 无误，`context --task plan --chapter <下一章>` 不泄漏废案事实。
+
+回滚时脚本按章号移除 `continuity/scene-log.md` 中晚于回滚点的段；跨越回滚点的段需要逐项语义重建，不把被废弃分支的经过留在当前上下文中。

@@ -63,6 +63,7 @@ CONTINUITY_ARCHIVE = ARCHIVE_DIR / "history.md"
 PROMISES_ARCHIVE = ARCHIVE_DIR / "promises.md"
 QUESTIONS_ARCHIVE = ARCHIVE_DIR / "questions.md"
 MIGRATION_MAP = ARCHIVE_DIR / "migration-map.md"
+SCENE_LOG_PATH = ROOT / "continuity" / "scene-log.md"
 QUALITY_RULES = ROOT / "references" / "style-guide.md"
 CONTEXT_CACHE_DIR = ROOT / ".story-cache"
 PROJECT_CONFIG_PATH = ROOT / "novel-project.json"
@@ -93,6 +94,7 @@ DEFAULT_PROJECT_CONFIG = {
         "character_hot_other_bytes": 6000,
     },
     "writing": {"target_total_words": 0},
+    "lint": {"character_entry_warn_chars": 300, "name_shorthand": []},
 }
 
 
@@ -122,6 +124,7 @@ def load_project_config():
 PROJECT_CONFIG = load_project_config()
 CONTEXT_CONFIG = PROJECT_CONFIG["context"]
 LIMIT_CONFIG = PROJECT_CONFIG["limits"]
+LINT_CONFIG = PROJECT_CONFIG["lint"]
 
 CONTEXT_TASKS = ("plan", "write", "revise", "review", "direction")
 CONTEXT_PRIORITIES = ("P0", "P1", "P2")
@@ -1454,6 +1457,35 @@ def _voice_sample(chapters, chapter_number, max_chars=None):
     return chapter["path"], f"{note}\n\n## 第{chapter_number}章《{title}》节选\n\n{prose}\n"
 
 
+_SCENE_LOG_HEADING_RE = re.compile(r"^##\s+(\d{4})(?:\s*[—–-]\s*(\d{4}))?(?:\s+(.*))?$")
+
+def _scene_log_sections(chapter_number):
+    """返回现场记录中覆盖指定章号的段落。
+
+    现场记录保存逐章经过、旁听者与执行账，只给改稿、审阅和下一章规划按章号取用，
+    不进入开写包，也不让 state.md 变成逐章日志。
+    """
+    if chapter_number is None or not SCENE_LOG_PATH.exists():
+        return ""
+    lines = SCENE_LOG_PATH.read_text(encoding="utf-8").splitlines()
+    parts, current, keep = [], [], False
+    for line in lines + ["## 9999 结束"]:
+        heading = _SCENE_LOG_HEADING_RE.match(line)
+        if heading or line.startswith("# "):
+            if keep and current:
+                parts.append("\n".join(current).strip())
+            current, keep = [], False
+            if heading:
+                start = int(heading.group(1))
+                end = int(heading.group(2)) if heading.group(2) else start
+                keep = start <= chapter_number <= end
+                current = [line]
+            continue
+        if keep:
+            current.append(line)
+    return "\n\n".join(parts) + ("\n" if parts else "")
+
+
 def _entity_files_under(directory):
     if not directory.exists():
         return []
@@ -2033,6 +2065,20 @@ def build_context(task, chapter, focuses=None, includes=None, max_chars=None, vo
             "P0", f"声口样章：第{voice_chapter}章", voice_path, voice_text,
             "显式指定；只作 HOW 参照，不作事实来源",
         ))
+    if task in ("revise", "review") and target:
+        scene_log = _scene_log_sections(chapter)
+        if scene_log:
+            candidates.append(ContextCandidate(
+                "P1", f"现场记录：第{chapter}章", SCENE_LOG_PATH, scene_log,
+                "目标章的旁听者、执行账与逐章经过；只供核对，不进开写包",
+            ))
+    elif task == "plan" and chapter:
+        scene_log = _scene_log_sections(chapter - 1)
+        if scene_log:
+            candidates.append(ContextCandidate(
+                "P2", f"现场记录：第{chapter - 1}章", SCENE_LOG_PATH, scene_log,
+                "上章旁听者与执行账；预算允许时补充",
+            ))
     relationship_cards = _relationship_extract(profile_order, chapter, chars, write_view=task == "write")
     if relationship_cards:
         candidates.append(ContextCandidate(
@@ -2559,10 +2605,146 @@ def _suspected_unreferenced_characters(fm, body, character_records):
     return missing
 
 
+_CN_CHAPTER_NUMBER = r"[一二三四五六七八九十百零〇两\d]+"
+_CN_CHAPTER_REF = rf"第{_CN_CHAPTER_NUMBER}章"
+# 事实源只存当前状态。以章号开头、带“实际／结果／回填”等字样的标题说明它
+# 在记录某一章的经过；这类内容应写入章节元数据或 continuity/scene-log.md。
+CHAPTER_LOG_HEADING_RE = re.compile(
+    rf"^#{{2,6}}\s+.*?(?:(?<!\d)0\d{{3}}(?!\d)|{_CN_CHAPTER_REF}).*?"
+    r"(?:实际|结果|回填|承接|落实|核验|控制卡|执行账|进度)"
+)
+STATE_LOG_LINE_RE = re.compile(rf"^(?:{_CN_CHAPTER_REF}|0\d{{3}})[^|：:]{{0,24}}[：:]")
+# 人物档案只写当前事实与人物理解；以章号开头的条目是逐章经过。
+CHARACTER_LOG_BULLET_RE = re.compile(rf"^\s*(?:-\s*)?(?:\*\*)?(?:截至)?(?:0\d{{3}}|{_CN_CHAPTER_REF})")
+_CHARACTER_BARE_CHAPTER_RE = re.compile(r"(?<!\d)(0\d{3})(?!\d)")
+_CHARACTER_BARE_RANGE_RE = re.compile(r"(?<!\d)(0\d{3})\s*[-—–~至]\s*(0\d{3})(?!\d)")
+_CHARACTER_CN_REF_RE = re.compile(rf"第({_CN_CHAPTER_NUMBER})章")
+_CHARACTER_CN_RANGE_RE = re.compile(
+    rf"第({_CN_CHAPTER_NUMBER})\s*[-—–~至]\s*({_CN_CHAPTER_NUMBER})章"
+)
+_SECOND_LEVEL_HEADING_RE = re.compile(r"^##(?!#)\s+(.+?)\s*$")
+
+
+def _chinese_chapter_number(value):
+    if value.isdigit():
+        return int(value)
+    digits = {"零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
+              "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+    units = {"十": 10, "百": 100}
+    total = current = 0
+    for char in value:
+        if char in digits:
+            current = digits[char]
+        elif char in units:
+            total += (current or 1) * units[char]
+            current = 0
+    return total + current
+
+
+def _character_chapter_refs(line):
+    refs = set()
+    range_spans = []
+    for pattern, converter in (
+        (_CHARACTER_BARE_RANGE_RE, int),
+        (_CHARACTER_CN_RANGE_RE, _chinese_chapter_number),
+    ):
+        for match in pattern.finditer(line):
+            refs.add(("range", converter(match.group(1)), converter(match.group(2))))
+            range_spans.append(match.span())
+
+    def in_range(span):
+        return any(start <= span[0] and span[1] <= end for start, end in range_spans)
+
+    for pattern, converter in (
+        (_CHARACTER_BARE_CHAPTER_RE, int),
+        (_CHARACTER_CN_REF_RE, _chinese_chapter_number),
+    ):
+        for match in pattern.finditer(line):
+            if not in_range(match.span()):
+                refs.add(converter(match.group(1)))
+    return refs
+
+
+def _character_long_entries(lines, threshold):
+    hits = {}
+    section = None
+    for line in lines:
+        heading = _SECOND_LEVEL_HEADING_RE.match(line.strip())
+        if heading:
+            section = heading.group(1)
+            continue
+        if section != "人物关系" and not (section or "").startswith("当前状态"):
+            continue
+        stripped = line.strip()
+        if stripped.startswith("- ") and len(stripped) > threshold:
+            hits.setdefault(section, []).append(stripped)
+    return hits
+
+
+def _skeleton_lint(chapters):
+    """骨架防劣化检查：单字简称、事实源日志化、声口样本与控制卡简报。"""
+    problems, warnings = [], []
+
+    log_problem_files = [STATE_PATH]
+    if WORLDBUILDING_DIR.exists():
+        log_problem_files.extend(sorted(WORLDBUILDING_DIR.rglob("*.md")))
+    questions_dir = QUESTIONS_INDEX.parent
+    if questions_dir.exists():
+        log_problem_files.extend(p for p in sorted(questions_dir.glob("*.md")) if p.name != "_index.md")
+    arc_files = [p for p in sorted(PLOT_ARCS_DIR.glob("*.md")) if p.name != "_index.md"] if PLOT_ARCS_DIR.exists() else []
+    for path in log_problem_files + arc_files:
+        if not path.is_file():
+            continue
+        lines = path.read_text(encoding="utf-8").splitlines()
+        headings = [line.strip() for line in lines if CHAPTER_LOG_HEADING_RE.match(line.strip())]
+        if path == STATE_PATH:
+            headings += [
+                line.strip()[:30] for line in lines
+                if line.strip() and not line.startswith(("|", "#", ">")) and STATE_LOG_LINE_RE.match(line.strip())
+            ]
+        if not headings:
+            continue
+        message = (
+            f"[事实源日志化] {path.relative_to(ROOT)} 有 {len(headings)} 段逐章记录（{'；'.join(headings[:3])}）；"
+            "事实源只存当前状态，逐章经过、旁听者与执行账移入 continuity/scene-log.md 或章节元数据"
+        )
+        (warnings if path in arc_files else problems).append(message)
+
+    entry_warn_chars = int(LINT_CONFIG.get("character_entry_warn_chars", 300))
+    for path in iter_entity_files(CHARACTERS_DIR):
+        _, body = split_frontmatter(path.read_text(encoding="utf-8"))
+        lines = body.splitlines()
+        bullets = [line.strip()[:30] for line in lines if CHARACTER_LOG_BULLET_RE.match(line)]
+        if bullets:
+            problems.append(
+                f"[人物档案日志化] {path.relative_to(ROOT)} 有 {len(bullets)} 条以章号开头的逐章经过（{'；'.join(bullets[:2])}）；"
+                "人物档案只写当前事实与人物理解，逐章经过移入 continuity/scene-log.md"
+            )
+        chained = [
+            line.strip()[:30] for line in lines
+            if not CHARACTER_LOG_BULLET_RE.match(line) and len(_character_chapter_refs(line)) >= 2
+        ]
+        if chained:
+            problems.append(
+                f"[人物档案日志化] {path.relative_to(ROOT)} 有 {len(chained)} 条在同一条目里串联多个章号（{'；'.join(chained[:2])}）；"
+                "人物档案只写当前事实与人物理解，逐章经过移入 continuity/scene-log.md"
+            )
+        for section, entries in _character_long_entries(lines, entry_warn_chars).items():
+            warnings.append(
+                f"[人物条目过长] {path.relative_to(ROOT)} 的「{section}」有 {len(entries)} 条超过{entry_warn_chars}字"
+                f"（{entries[0][:30]}…）；核对是否把逐章经过或 state.md 已有的当前状态写进了人物档案"
+            )
+
+    return problems, warnings
+
+
 def cmd_lint(args):
     problems = []
     warnings = []
     chapters = _load_chapters()
+    skeleton_problems, skeleton_warnings = _skeleton_lint(chapters)
+    problems.extend(skeleton_problems)
+    warnings.extend(skeleton_warnings)
 
     known_characters = set()
     known_primary_characters = set()

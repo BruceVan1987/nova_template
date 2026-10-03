@@ -54,3 +54,5 @@ python3 scripts/audience_audit.py <目标章>
 - 运行 `python3 scripts/story.py review-check <章号>` 和 `python3 scripts/story.py lint`，修清与本次改动相关的问题；若校验后又改正文，重新执行受影响的冷读与核验。
 - 用户尚未确认的改稿用 `python3 scripts/story.py ready-chapter <章号>` 交付为待审核，不手改状态。用户明确确认后运行 `python3 scripts/story.py confirm-chapter <章号>`；已确认旧章改动后也必须重跑该命令刷新正稿，但不用 `ready-chapter` 降级。
 - 最后只汇报改了什么、验证结果和仍需用户决定的事项，不整章重贴正文。
+
+逐章实际经过、旁听者与钱物执行账写入 `continuity/scene-log.md` 对应章号段；人物档案、当前状态、地理和活跃悬念只存当前有效事实。规划中的候选路径不登记成已发生事实。

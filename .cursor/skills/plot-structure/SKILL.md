@@ -23,3 +23,5 @@ description: >-
 4. 创建/更新 arc 文件：写入已经锁定的单元卡与粗粒度因果节点。还在讨论的试探性手段不得提前写入 `continuity/state.md` 或当作已发生事实。
 5. 按 [`references/chapter-template.md`](../../../references/chapter-template.md) 拆章；缺项时依唯一质量规范并章、压成消息或更换入口。卷纲只记录将真正出现在场上的正向材料，不列逐章禁用项或验收边界。切换外部 POV 或更换全书默认发动机时，记录作者对该章的明确授权。声口或场面滋味已经漂移时，可用 `context --voice-chapter <已确认章号>` 定向载入一个样章，只参照 HOW。
 6. 更新 [`plot/_index.md`](../../../plot/_index.md) 和对应 arc；涉及具体时点时同步 [`plot/timeline.md`](../../../plot/timeline.md)，最后运行 `python3 scripts/story.py reindex`。
+
+逐章实际经过、旁听者与钱物执行账写入 `continuity/scene-log.md` 对应章号段；人物档案、当前状态、地理和活跃悬念只存当前有效事实。规划中的候选路径不登记成已发生事实。

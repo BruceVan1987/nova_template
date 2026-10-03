@@ -23,6 +23,7 @@
 | 活跃伏笔／悬念 | `continuity/promises/`、`continuity/questions/` |
 | 已结束历史 | `continuity/archive/`，仅按关键词或显式焦点加载 |
 | 专有名词 | `glossary/terms/` 与 `glossary/_index.md` |
+| 逐章经过、旁听者与执行账 | `continuity/scene-log.md`（按章号取用，开写不载入） |
 | 正文质量规则 | `references/style-guide.md`（唯一规范） |
 | 草稿格式 | `references/chapter-template.md` |
 | 命名与实体格式 | `references/naming-conventions.md`、`references/entity-templates.md` |
@@ -47,6 +48,7 @@
 - 正文质量规则只写入 `references/style-guide.md`。Skill、常驻规则和 reviewer 只引用，不复制同义条目。
 - 一次性偏好不升级为全局规则；跨章复发且作者确认可泛化的问题才进入唯一规范。
 - 稳定可机械识别的问题写进脚本；依赖语境的判断留给语义审阅。
+- 事实源只存当前状态；逐章经过写入 `continuity/scene-log.md` 或章节元数据，人物档案不积累逐章流水。
 - 修改规则后运行 `python3 scripts/rules_audit.py`；修改脚本后运行测试、`lint` 和 `context-audit`。
 
 ## 草稿与确认边界
