@@ -27,6 +27,7 @@ RULE_ENTRYPOINTS = (
     ROOT / ".cursor" / "skills" / "revision-continuity" / "SKILL.md",
     ROOT / ".cursor" / "skills" / "plot-structure" / "SKILL.md",
     ROOT / "references" / "draft-review-protocol.md",
+    ROOT / "references" / "chapter-review-workflow.md",
     ROOT / ".cursor" / "agents" / "draft-reviewer.md",
     ROOT / ".codex" / "agents" / "draft-reviewer.toml",
     ROOT / "scripts" / "story.py",
@@ -38,6 +39,7 @@ MUST_REFERENCE_QUALITY_RULES = (
     ROOT / ".cursor" / "skills" / "revision-continuity" / "SKILL.md",
     ROOT / ".cursor" / "skills" / "plot-structure" / "SKILL.md",
     ROOT / "references" / "draft-review-protocol.md",
+    ROOT / "references" / "chapter-review-workflow.md",
     ROOT / "scripts" / "story.py",
 )
 CANONICAL_ONLY_PHRASES = (
@@ -165,6 +167,7 @@ def main() -> int:
         ROOT / ".cursor" / "rules" / "novel-style.mdc",
         QUALITY_RULES,
         ROOT / "references" / "draft-review-protocol.md",
+        ROOT / "references" / "chapter-review-workflow.md",
         *sorted((ROOT / ".cursor" / "skills").glob("*/SKILL.md")),
         ROOT / ".cursor" / "agents" / "draft-reviewer.md",
     ]

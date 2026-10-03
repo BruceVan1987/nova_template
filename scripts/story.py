@@ -14,6 +14,10 @@
     compile [--out FILE]        按章节号顺序拼出所有"已确认"章节的正稿为完整稿件
     context ...                 按任务生成可解释、有字符预算的上下文包
     context-audit               检查常驻上下文体积与归档边界
+    review-start <章号> --stage overall|language  输出独立冷读正文并开始一轮记录
+    review-finish <章号> --stage overall|language 核验本轮记录并绑定正文版本
+    review-check <章号>         只读核验两轮记录、版本和问题处置
+    ready-chapter <章号>        记录核验及 lint 后置为待审核，不生成正稿
 
 用法示例：
     python3 scripts/story.py new-chapter 1 第一章标题
@@ -32,6 +36,7 @@
 
 import argparse
 from dataclasses import dataclass
+import hashlib
 import json
 import re
 import sys
@@ -62,6 +67,7 @@ QUALITY_RULES = ROOT / "references" / "style-guide.md"
 CONTEXT_CACHE_DIR = ROOT / ".story-cache"
 PROJECT_CONFIG_PATH = ROOT / "novel-project.json"
 CHAPTER_CATALOG_PATH = CONTEXT_CACHE_DIR / "chapter-catalog-v1.json"
+REVIEW_STAGES = ("overall", "language")
 
 DEFAULT_PROJECT_CONFIG = {
     "schema_version": 1,
@@ -740,6 +746,256 @@ def _write_chapters_index(chapters):
     _atomic_write_text(CHAPTERS_INDEX_PATH, "\n".join(lines))
 
 
+# 冷读记录是执行证据，不是故事事实或语义质量判定。流程见
+# references/chapter-review-workflow.md；质量仍只由 style-guide.md 定义。
+def _review_hash(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _review_prose(chapter):
+    return build_final_content(chapter["fm"], chapter["body"])
+
+
+def _review_dir(chapter):
+    return ROOT / ".story-cache" / "reviews" / f"{chapter['fm']['chapter']:04d}"
+
+
+def _review_target(number):
+    matches = [c for c in _load_chapters(full=False) if c["fm"].get("chapter") == number]
+    if len(matches) != 1:
+        raise ValueError(f"第 {number} 章必须有且只有一份草稿，实际找到 {len(matches)} 份")
+    chapter = _hydrate_chapter(matches[0])
+    if not extract_final_prose(chapter["body"]):
+        raise ValueError("目标章没有正文，不能开始或完成冷读")
+    return chapter
+
+
+def _read_review_record(chapter, create=False):
+    path = _review_dir(chapter) / "record.json"
+    if not path.exists() and create:
+        return {"schema_version": 1, "chapter": chapter["fm"]["chapter"],
+                "stages": {}, "findings": [], "history": []}
+    if not path.exists():
+        raise ValueError("缺少冷读记录；先执行 review-start，不得补写虚构的已完成记录")
+    record = json.loads(path.read_text(encoding="utf-8"))
+    if (not isinstance(record, dict) or record.get("schema_version") != 1
+            or record.get("chapter") != chapter["fm"]["chapter"]
+            or not isinstance(record.get("stages"), dict)
+            or not isinstance(record.get("findings"), list)
+            or not isinstance(record.get("history"), list)):
+        raise ValueError("冷读记录格式或章号错误；保留文件并修复，不得当作缺失记录覆盖")
+    return record
+
+
+def _write_review_record(chapter, record):
+    _atomic_write_text(_review_dir(chapter) / "record.json",
+                       json.dumps(record, ensure_ascii=False, indent=2) + "\n")
+
+
+def _review_snapshot(chapter, digest):
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ValueError("正文指纹格式错误")
+    text = (_review_dir(chapter) / "snapshots" / f"{digest}.md").read_text(encoding="utf-8")
+    if _review_hash(text) != digest:
+        raise ValueError("正文快照被改动；不得修改原始快照")
+    return text
+
+
+def _review_text(value):
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _review_finding_errors(chapter, record):
+    errors = []
+    current = _review_prose(chapter)
+    for index, finding in enumerate(record["findings"], 1):
+        label = f"问题 {index}"
+        if not isinstance(finding, dict):
+            errors.append(f"{label} 必须是对象")
+            continue
+        if finding.get("stage") not in REVIEW_STAGES:
+            errors.append(f"{label} 缺少有效 stage")
+        if not all(_review_text(finding.get(k)) for k in ("quote", "problem")):
+            errors.append(f"{label} 缺少原句或问题说明")
+            continue
+        try:
+            source = _review_snapshot(chapter, finding.get("source_sha256"))
+            if finding["quote"] not in source:
+                errors.append(f"{label} 原句不在指定快照中")
+        except (ValueError, OSError) as exc:
+            errors.append(f"{label} 原始证据无效：{exc}")
+        decision = finding.get("decision")
+        if decision not in ("fixed", "retained"):
+            errors.append(f"{label} 尚未处置（decision 应为 fixed 或 retained）")
+            continue
+        if not _review_text(finding.get("reason")):
+            errors.append(f"{label} 缺少处置理由")
+        if decision == "retained":
+            if finding["quote"] not in current:
+                errors.append(f"{label} 声明保留的原句已不在当前正文中")
+        else:
+            replacement = finding.get("replacement")
+            if not isinstance(replacement, str):
+                errors.append(f"{label} 缺少改句 replacement（删除时填空字符串）")
+            elif replacement == finding["quote"]:
+                errors.append(f"{label} 改句与原句相同，不能记为已修改")
+            elif replacement.strip():
+                if replacement not in current:
+                    errors.append(f"{label} 改句不在当前正文中，须复核后更新记录")
+                elif finding["quote"] in current.replace(replacement, ""):
+                    errors.append(f"{label} 改句之外仍有原句；请补足定位上下文，核对是否真正改完")
+            elif finding["quote"] in current:
+                errors.append(f"{label} 声明删除的原句仍在当前正文中")
+    return errors
+
+
+def _review_receipt(record, stage):
+    check = {k: v for k, v in record["stages"][stage].items() if k != "receipt"}
+    findings = [f for f in record["findings"] if isinstance(f, dict) and f.get("stage") == stage]
+    return _review_hash(json.dumps({"check": check, "findings": findings},
+                                   ensure_ascii=False, sort_keys=True))
+
+
+def _review_stage_errors(chapter, record, stage, completed=True):
+    check = record["stages"].get(stage)
+    if not isinstance(check, dict):
+        return [f"缺少 {stage} 冷读步骤；先执行 review-start --stage {stage}"]
+    errors = []
+    prose = _review_prose(chapter)
+    if check.get("prose_sha256") != _review_hash(prose):
+        errors.append(f"{stage} 记录已过期：正文或标题已修改")
+    if check.get("rules_sha256") != _review_hash(QUALITY_RULES.read_text(encoding="utf-8")):
+        errors.append(f"{stage} 记录已过期：质量规范已修改")
+    try:
+        _review_snapshot(chapter, check.get("prose_sha256"))
+    except (OSError, ValueError) as exc:
+        errors.append(f"{stage} 快照无效：{exc}")
+    notes = check.get("notes")
+    if not isinstance(notes, list) or not notes:
+        errors.append(f"{stage} 缺少原句与判断依据；不接受仅勾选完成")
+    else:
+        for index, note in enumerate(notes, 1):
+            if (not isinstance(note, dict)
+                    or not all(_review_text(note.get(k)) for k in ("quote", "reason"))):
+                errors.append(f"{stage} 读记 {index} 缺少原句或判断理由")
+            elif note["quote"] not in prose:
+                errors.append(f"{stage} 读记 {index} 的原句不在当前正文中")
+    if completed:
+        if check.get("status") != "complete":
+            errors.append(f"{stage} 尚未完成 review-finish")
+        elif check.get("receipt") != _review_receipt(record, stage):
+            errors.append(f"{stage} 记录在完成后被修改，须复核并重新 review-finish")
+    return errors
+
+
+def _review_errors(chapter):
+    try:
+        record = _read_review_record(chapter)
+        errors = _review_finding_errors(chapter, record)
+        for stage in REVIEW_STAGES:
+            errors.extend(_review_stage_errors(chapter, record, stage))
+        return errors
+    except (OSError, ValueError) as exc:
+        return [str(exc)]
+
+
+def _print_review_errors(errors):
+    for error in errors:
+        print(f"[冷读记录未就绪] {error}", file=sys.stderr)
+    return 1
+
+
+def cmd_review_start(args):
+    try:
+        chapter = _review_target(args.chapter)
+        record = _read_review_record(chapter, create=True)
+        if args.stage == "language":
+            errors = _review_stage_errors(chapter, record, "overall")
+            errors.extend(_review_finding_errors(chapter, record))
+            if errors:
+                return _print_review_errors(errors)
+        # 重开整体冷读时，后续语言轮也须重新执行。历史及已发现的问题不清空。
+        reset = REVIEW_STAGES if args.stage == "overall" else ("language",)
+        for stage in reset:
+            previous = record["stages"].pop(stage, None)
+            if previous is not None:
+                record["history"].append({"stage": stage, "check": previous})
+        prose = _review_prose(chapter)
+        digest = _review_hash(prose)
+        snapshot = _review_dir(chapter) / "snapshots" / f"{digest}.md"
+        if snapshot.exists():
+            _review_snapshot(chapter, digest)
+        else:
+            _atomic_write_text(snapshot, prose)
+        record["stages"][args.stage] = {
+            "prose_sha256": digest,
+            "rules_sha256": _review_hash(QUALITY_RULES.read_text(encoding="utf-8")),
+            "status": "reading", "notes": [],
+        }
+        _write_review_record(chapter, record)
+        print(f"开始 {args.stage} 冷读；以下为完整读者正文，不含控制卡及台账。")
+        print(f"快照：{snapshot}")
+        print(f"记录：{_review_dir(chapter) / 'record.json'}")
+        print("仅填写 notes 和 findings；读完再执行 review-finish。\n")
+        print(prose, end="")
+        return 0
+    except (OSError, ValueError) as exc:
+        return _print_review_errors([str(exc)])
+
+
+def cmd_review_finish(args):
+    try:
+        chapter = _review_target(args.chapter)
+        record = _read_review_record(chapter)
+        errors = _review_stage_errors(chapter, record, args.stage, completed=False)
+        errors.extend(_review_finding_errors(chapter, record))
+        if args.stage == "language":
+            errors.extend(_review_stage_errors(chapter, record, "overall"))
+        if errors:
+            return _print_review_errors(errors)
+        record["stages"][args.stage]["status"] = "complete"
+        record["stages"][args.stage]["receipt"] = _review_receipt(record, args.stage)
+        _write_review_record(chapter, record)
+        print(f"{args.stage} 记录已绑定当前正文；这不是语义质量通过证明。")
+        return 0
+    except (OSError, ValueError) as exc:
+        return _print_review_errors([str(exc)])
+
+
+def cmd_review_check(args):
+    try:
+        errors = _review_errors(_review_target(args.chapter))
+    except (OSError, ValueError) as exc:
+        errors = [str(exc)]
+    if errors:
+        return _print_review_errors(errors)
+    print("两轮记录与当前正文一致，无未处置问题；不代表语义质量或作者确认。")
+    return 0
+
+
+def cmd_ready_chapter(args):
+    if _reject_if_story_setup("交付待审核草稿"):
+        return 2
+    # 先核对记录，再运行既有机械检查；任何失败均不改章节状态。
+    if cmd_review_check(args):
+        return 1
+    if cmd_lint(args):
+        return 1
+    try:
+        chapter = _review_target(args.chapter)
+        errors = _review_errors(chapter)
+        if errors:
+            return _print_review_errors(errors)
+        if chapter["fm"].get("status") not in ("draft", "待审核"):
+            raise ValueError("ready-chapter 仅用于未确认草稿，不能把已确认章节降级")
+        _atomic_write_text(chapter["path"], set_frontmatter_field(chapter["text"], "status", "待审核"))
+        _write_chapters_index(_load_chapters(full=False))
+        print(f"第 {args.chapter} 章已置为待审核；未生成正稿。")
+        return 0
+    except (OSError, ValueError) as exc:
+        return _print_review_errors([str(exc)])
+
+
 def cmd_confirm_chapter(args):
     if _reject_if_story_setup("确认章节或生成正稿"):
         return 2
@@ -756,6 +1012,10 @@ def cmd_confirm_chapter(args):
 
     c = _hydrate_chapter(matches[0])
     fm, body, text = c["fm"], c["body"], c["text"]
+
+    review_errors = _review_errors(c)
+    if review_errors:
+        return _print_review_errors(review_errors)
 
     final_path = final_chapter_path(fm)
     final_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2600,6 +2860,20 @@ def main():
     p_confirm = sub.add_parser("confirm-chapter", help="确认章节：从草稿生成正稿并把 status 改为 已确认")
     p_confirm.add_argument("chapter", type=int, help="章号（整数）")
     p_confirm.set_defaults(func=cmd_confirm_chapter)
+
+    for name, handler in (("review-start", cmd_review_start), ("review-finish", cmd_review_finish)):
+        p_review = sub.add_parser(name, help="开始/完成一轮绑定正文版本的冷读记录")
+        p_review.add_argument("chapter", type=int, help="目标章号")
+        p_review.add_argument("--stage", required=True, choices=REVIEW_STAGES)
+        p_review.set_defaults(func=handler)
+
+    p_review_check = sub.add_parser("review-check", help="只读核验冷读记录、正文版本及问题处置")
+    p_review_check.add_argument("chapter", type=int, help="目标章号")
+    p_review_check.set_defaults(func=cmd_review_check)
+
+    p_ready = sub.add_parser("ready-chapter", help="冷读记录核验与 lint 后置为待审核，不生成正稿")
+    p_ready.add_argument("chapter", type=int, help="目标章号")
+    p_ready.set_defaults(func=cmd_ready_chapter)
 
     p_reindex = sub.add_parser("reindex", help="重建各 _index.md 表格")
     p_reindex.set_defaults(func=cmd_reindex)

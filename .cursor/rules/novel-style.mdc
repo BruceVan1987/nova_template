@@ -10,6 +10,6 @@ alwaysApply: true
 - 正文质量只服从 [`references/style-guide.md`](../../references/style-guide.md)。不要从 Skill、旧清单或对话摘要拼出第二套规则。
 - 除非用户已经确认连续产出多章，新章先提交控制卡再写。草稿格式见 [`references/chapter-template.md`](../../references/chapter-template.md)。
 - 正文只编辑 `chapters/drafts/`。人物、物品、知识、关系、伏笔、悬念、时间与术语发生变化时，同步对应结构化文件。
-- 交稿前运行 `python3 scripts/audience_audit.py <章节路径>` 并逐项核对实际受众，再运行 `python3 scripts/story.py wordcount --write` 与 `python3 scripts/story.py lint`。
+- 交稿前按 [章节交稿检查流程](../../references/chapter-review-workflow.md) 分开整体与语言冷读；运行 `python3 scripts/audience_audit.py <章节路径>` 并逐项核对实际受众，再运行 `python3 scripts/story.py wordcount --write` 与 `python3 scripts/story.py ready-chapter <章号>`（内含记录核验和 `lint`）。只读审阅不写记录或状态。
 - 只有用户明确确认后才能运行 `python3 scripts/story.py confirm-chapter <章号>`。禁止手工编辑 `chapters/final/` 或手改已确认状态。
 - 不主动编辑自动生成的 `_index.md`；使用 `scripts/story.py reindex` 或 `wordcount --write` 重建。新实体按 [`references/entity-templates.md`](../../references/entity-templates.md) 创建。

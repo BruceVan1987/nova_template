@@ -67,7 +67,7 @@ python3 scripts/story.py new-chapter <卷号> <标题>
 python3 scripts/story.py context --task review --chapter <章号> --max-chars 35000
 ```
 
-此时才加载完整质量规范、当前知情范围与禁线。暂时不看控制卡、摘要和台账，把正文从头到尾连续读一遍，做一次去 AI 味冷读：若人物姓名遮掉后对白可互换，或整章能还原成会议纪要／任务清单，先重排承载场景，不以补动作和换同义词交差。随后完整执行写作质量规范的“五道门”，并运行：
+此时才加载完整质量规范、当前知情范围与禁线。完整读取并执行 [`references/chapter-review-workflow.md`](../../../references/chapter-review-workflow.md)：先做 `overall` 整体冷读与“五道门”核对，完成后再做独立的 `language` 语言冷读；两轮由当前执行者串行完成。每轮用 `review-start` 取得无控制卡的完整正文，记录具体原句与判断后用 `review-finish` 核验；正文改动后按流程复读，不以旧版本记录交差。随后运行：
 
 ```bash
 python3 scripts/audience_audit.py chapters/drafts/<卷>/<章节>.md
@@ -88,9 +88,10 @@ python3 scripts/audience_audit.py chapters/drafts/<卷>/<章节>.md
 
 ```bash
 python3 scripts/story.py wordcount --write
-python3 scripts/story.py lint
+python3 scripts/story.py review-check <章号>
+python3 scripts/story.py ready-chapter <章号>
 ```
 
-修清错误后把草稿 status 置为 `待审核`。只有用户明确确认，才运行 `python3 scripts/story.py confirm-chapter <章号>`。
+`ready-chapter` 核对当前版冷读记录并运行 `lint`，成功后才把草稿 status 置为 `待审核`；不手改状态绕过入口。记录就绪不代表正文质量通过。只有用户明确确认，才运行 `python3 scripts/story.py confirm-chapter <章号>`。
 
 连续写多章时，每章串行重复上述全部流程，并维护本轮内部跨章表：日期、人物位置、物品、知识与权限。不能先并行写完整批正文，再一次性回填跨章状态。

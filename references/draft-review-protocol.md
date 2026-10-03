@@ -10,7 +10,7 @@
 
 1. 运行 `python3 scripts/story.py lint`，只报告与目标章有关的结果。
 2. 运行 `python3 scripts/story.py context --task review --chapter N --max-chars 35000`；读取目标正文（不计预算）及纳入清单。只有明确缺口才用 `--focus` 或 `--include` 补入。
-3. 确认上下文包已经且仅已载入一次 [`style-guide.md`](style-guide.md)，按其中“五道门”审阅；不另开文件重复读取，也不得从 Skill、旧清单或个人偏好另拼标准。
+3. 确认上下文包已经且仅已载入一次 [`style-guide.md`](style-guide.md)。先脱离控制卡连续冷读，按其中“五道门”审阅；再单独完整读一遍正文，仅判断词句和声口，不同时核对台账。不另开文件重复读取规范，也不得从 Skill、旧清单或个人偏好另拼标准。本协议始终只读，不运行会写记录或状态的 `review-start`、`review-finish`、`ready-chapter`。
 4. 运行 `python3 scripts/audience_audit.py <目标章>`，逐项按实际受众判断。零命中不代表信件、口信和公开文本自动安全。
 5. 没有明显问题直接通过，不为填栏目制造意见。
 

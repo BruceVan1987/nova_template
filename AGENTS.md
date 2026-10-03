@@ -54,5 +54,6 @@
 - 只要用户要求的是评估、审阅或报告，保持只读，不顺手改稿。
 - 没有明显问题可以直接通过，不为审阅制造意见。
 - 用户未明确确认前，章节保持 `draft` 或 `待审核`，不得生成或改写正稿。
+- 写作或改稿交付按 [章节交稿检查流程](references/chapter-review-workflow.md) 分开整体与语言冷读；用 `ready-chapter` 核验当前版记录后置为待审核。只读审阅不写记录，记录就绪也不等于作者确认。
 
 常驻流程约束见 [`.cursor/rules/novel-style.mdc`](.cursor/rules/novel-style.mdc)。

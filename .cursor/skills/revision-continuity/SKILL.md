@@ -37,7 +37,7 @@ python3 scripts/story.py context --task revise --chapter <章号> --max-chars 35
 
 ## 3. 冷读与受众审计
 
-修改后脱离用户意见，至少冷读修改段前后三段，并执行写作质量规范的“五道门”。所有改稿章都运行：
+修改后完整读取并执行 [`references/chapter-review-workflow.md`](../../../references/chapter-review-workflow.md)。脱离用户意见，先做 `overall` 整体复读和“五道门”核对，再单独做 `language` 语言冷读，记录实际原句和判断。局部改稿至少复读修改段前后三段及关联段，语言轮完整读当前正文；不能复用修改前的版本记录。所有改稿章都运行：
 
 ```bash
 python3 scripts/audience_audit.py <目标章>
@@ -51,6 +51,6 @@ python3 scripts/audience_audit.py <目标章>
 
 - 只编辑 `chapters/drafts/`；已确认章也先改草稿。
 - 字数变化后运行 `wordcount --write`；事实变化同步 state、timeline、人物、关系、伏笔／悬念与术语。
-- 运行 `python3 scripts/story.py lint`，修清与本次改动相关的问题。
-- 用户尚未确认时保持草稿／待审核。用户明确确认后运行 `python3 scripts/story.py confirm-chapter <章号>`；已确认旧章改动后也必须重跑该命令刷新正稿。
+- 运行 `python3 scripts/story.py review-check <章号>` 和 `python3 scripts/story.py lint`，修清与本次改动相关的问题；若校验后又改正文，重新执行受影响的冷读与核验。
+- 用户尚未确认的改稿用 `python3 scripts/story.py ready-chapter <章号>` 交付为待审核，不手改状态。用户明确确认后运行 `python3 scripts/story.py confirm-chapter <章号>`；已确认旧章改动后也必须重跑该命令刷新正稿，但不用 `ready-chapter` 降级。
 - 最后只汇报改了什么、验证结果和仍需用户决定的事项，不整章重贴正文。
