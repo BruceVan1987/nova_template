@@ -200,5 +200,3 @@ class RollbackSceneLogTests(unittest.TestCase):
         self.assertNotIn("十二章", kept)
         self.assertEqual(removed, ["## 0011 现场记录", "## 0012 现场记录"])
         self.assertEqual(straddling, ["## 0010—0012 现场记录"])
-
-

@@ -74,7 +74,7 @@ REVIEW_STAGES = ("overall", "language")
 
 DEFAULT_PROJECT_CONFIG = {
     "schema_version": 1,
-    "template_version": "1.1.0",
+    "template_version": "2.0.0",
     "mode": "template",
     "context": {
         "default_max_chars": 35000,

@@ -146,4 +146,3 @@ class EmptyVoiceTests(unittest.TestCase):
             with mock.patch.object(story, "VOICE_SAMPLES_PATH", voice):
                 self.assertEqual(story._voice_sample_entries(), [])
                 self.assertEqual(story._voice_sample_excerpts([]), ([], []))
-
