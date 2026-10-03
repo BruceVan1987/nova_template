@@ -85,15 +85,15 @@ class SkeletonGuardTests(unittest.TestCase):
     # ---- 单字简称 -------------------------------------------------------
 
     def test_name_shorthand_respects_allowed_words(self):
-        rules = [{"short": "宁", "full": "守宁", "allowed": ["守宁", "宁可", "安宁"]}]
-        text = "张守宁宁可不说，安宁了。\n宁付四枚买名字；罗兴见宁急问。\n"
+        rules = [{"short": "甲", "full": "张甲", "allowed": ["张甲", "甲板", "盔甲"]}]
+        text = "李张甲走到甲板，脱下盔甲。\n甲付四枚买东西；陈乙见甲急问。\n"
         hits = self.story.find_name_shorthand(text, rules)
         self.assertEqual([line for line, _, _ in hits], [2, 2])
 
     def test_shorthand_lint_scans_docs_and_draft_head_but_not_prose(self):
-        self.story.LINT_CONFIG["name_shorthand"] = [{"short": "宁", "full": "守宁", "allowed": ["守宁"]}]
-        self.write("plot/arcs/测试.md", "---\nstatus: 进行中\nchapter-range: 0001-\n---\n\n宁付四枚。\n")
-        self.chapter(3, "draft", "## 本章控制卡\n\n- 场面简报：宁进门。\n", "宁进门时没人理他。\n")
+        self.story.LINT_CONFIG["name_shorthand"] = [{"short": "丙", "full": "陈丙", "allowed": ["陈丙"]}]
+        self.write("plot/arcs/测试.md", "---\nstatus: 进行中\nchapter-range: 0001-\n---\n\n丙付四枚。\n")
+        self.chapter(3, "draft", "## 本章控制卡\n\n- 场面简报：丙进门。\n", "丙进门时没人理他。\n")
         problems, _ = self.story._skeleton_lint(self.story._load_chapters())
         flagged = [item for item in problems if "单字简称" in item]
         self.assertEqual(len(flagged), 2, flagged)

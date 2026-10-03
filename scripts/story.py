@@ -560,7 +560,7 @@ def find_prose_style_warnings(body, status=None):
                 light_hits[0][0],
                 "轻度书面词密度",
                 f"{len(light_hits)}处（{density:.1f}/千字，阈值 {warn_per_k:g}）：{samples}",
-                "对照 style-guide「白话自检」第 1 类改成口语；文书引用或人物固定声口可保留",
+                "对照 style-guide 的当前声口要求处理；文书引用或人物固定表达可按语言轮记录理由保留",
             ))
 
     bare_runs = []
