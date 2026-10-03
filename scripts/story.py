@@ -198,7 +198,7 @@ LIGHT_REGISTER_RE = re.compile(
     r"|(?<![方随顺即以不简轻大小])便(?![宜利当饭条道服衣携于])"
     r"|(?<![般自宛恍])若(?!干)"
 )
-# 「白话自检」第 4 类：以引号开头、引号外有效字数很少的段落视为纯对白段，
+# 可配置声口检查：以引号开头、引号外有效字数很少的段落视为纯对白段，
 # 连续多段时提醒在对白之间补动作。
 BARE_DIALOGUE_MAX_OUTSIDE_CHARS = 8
 BARE_DIALOGUE_RUN_THRESHOLD = 4
@@ -477,7 +477,7 @@ def find_prose_style_warnings(body, status=None):
 
     这些特征在追逐、窒息、真实迟疑、文书引用或人物固定声口中可能成立，
     因此只作每章汇总的非阻塞提示，不自动替换，也不单词判错。
-    status 传入章节 frontmatter 的 status；「白话自检」两类提醒只对
+    status 传入章节 frontmatter 的 status；可配置声口提醒只对
     未确认章发出，已确认章冻结，不为旧正文追加提示。
     """
     prose_lines = extract_prose_lines(body)
@@ -585,7 +585,7 @@ def find_prose_style_warnings(body, status=None):
             bare_runs[0][0],
             "纯对白串",
             detail,
-            "对照 style-guide「白话自检」第 4 类，在对白之间补说话人正在做的事",
+            "对照 style-guide可配置声口检查，在对白之间补说话人正在做的事",
         ))
 
     return warnings
@@ -597,7 +597,7 @@ def _light_register_pattern():
 
 
 def _is_bare_dialogue_paragraph(text):
-    """判断「白话自检」第 4 类的纯对白段：以引号开头、引号外有效字很少。"""
+    """判断可配置声口检查的纯对白段：以引号开头、引号外有效字很少。"""
     if not text or text[0] not in ("“", '"'):
         return False
     outside = re.sub(r"“[^”]*”|\"[^\"]*\"", "", text)
@@ -1141,7 +1141,7 @@ def cmd_review_check(args):
 
 
 def _light_register_gate_error(chapter, prose):
-    """ready-chapter 的白话自检门槛：轻度书面词密度超过 block_per_k 时返回出错文案。
+    """ready-chapter 的可配置声口门槛：轻度书面词密度超过 block_per_k 时返回出错文案。
 
     命中若整段落在 language 轮 decision=retained 的原句出现处之内，视为已处置，
     不再计入。行号与密度都按读者正文（_review_prose 的输出，与冷读记录和快照
@@ -1806,6 +1806,11 @@ def _default_voice_samples(chapters, max_chars=None):
     for name, number, text in excerpts:
         block = f"\n## {name}（第{number}章）\n\n{text}\n"
         if used + len(block) > max_chars:
+            if len(parts) == 2:
+                raise ValueError(
+                    f"声口样本「{name}」需要 {used + len(block)} 字符，超过样本预算 {max_chars}；"
+                    "请缩短锚点范围或增大 context.voice_sample_chars"
+                )
             break
         parts.append(block)
         used += len(block)

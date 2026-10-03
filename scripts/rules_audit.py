@@ -212,9 +212,10 @@ def check_context(task: str, chapter: int, includes=()) -> list[str]:
         errors.append(f"{task} 上下文缺少完整冷读规范")
     blocks = re.findall(r"^# \[P\d\] (.+)$", result.stdout, re.MULTILINE)
     if task in ("write", "revise"):
-        if blocks[-2:] != ["声口样本", "落笔前自检"]:
+        voice_labels = [label for label in blocks if label == "声口样本" or label.startswith("声口样章：")]
+        if blocks[-1:] != ["落笔前自检"] or (voice_labels and blocks[-2:-1] != voice_labels):
             errors.append(
-                f"{context_label} 上下文包末应是「声口样本」接「落笔前自检」，"
+                f"{context_label} 包末必须是「落笔前自检」；配置声口样本时应紧邻其前，"
                 f"实际为：{'、'.join(blocks[-2:]) if blocks else '（无）'}"
             )
     elif "落笔前自检" in blocks:
@@ -316,7 +317,7 @@ def main() -> int:
 
     print("规则审计通过：")
     print("- 正文质量只有 references/style-guide.md 一个事实源")
-    print("- write 只载正向开写视图；write/revise 包末为「声口样本」接「落笔前自检」，revise/review 载入完整冷读规范")
+    print("- write 只载正向开写视图；write/revise 包末为可选「声口样本」接「落笔前自检」，revise/review 载入完整冷读规范")
     print("- 章节正文只能串行生成，并行仅限落笔前的关键角色立场推演")
     print("- 旧规则文件与引用均已清除")
     print("- 本地 Markdown 链接有效")

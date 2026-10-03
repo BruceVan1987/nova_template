@@ -90,6 +90,11 @@ class SkeletonGuardTests(unittest.TestCase):
         output, _, _ = self.story.build_context("write", 2)
         self.assertEqual(self.labels(output)[-3:], ["上章结尾原文", "目标章正向控制卡", "声口样本"])
 
+    def test_configured_sample_that_cannot_fit_fails_instead_of_returning_only_intro(self):
+        self.voice_file()
+        with self.assertRaisesRegex(ValueError, "超过样本预算"):
+            self.story._default_voice_samples(self.story._load_chapters(), max_chars=10)
+
     def test_explicit_voice_chapter_replaces_default_sample(self):
         self.voice_file()
         output, _, _ = self.story.build_context("write", 2, voice_chapter=1)
@@ -134,8 +139,11 @@ class SkeletonGuardTests(unittest.TestCase):
 
 class EmptyVoiceTests(unittest.TestCase):
     def test_empty_template_voice_file_is_allowed(self):
-        story=load_story_module()
-        self.assertEqual(story._voice_sample_entries(), [])
-        problems, _=story._skeleton_lint([])
-        self.assertFalse(any('声口样本' in item for item in problems), problems)
+        story = load_story_module()
+        with tempfile.TemporaryDirectory() as directory:
+            voice = Path(directory) / "voice-samples.md"
+            voice.write_text("# 默认声口样本\n\n尚未配置。\n", encoding="utf-8")
+            with mock.patch.object(story, "VOICE_SAMPLES_PATH", voice):
+                self.assertEqual(story._voice_sample_entries(), [])
+                self.assertEqual(story._voice_sample_excerpts([]), ([], []))
 

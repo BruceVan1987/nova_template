@@ -1,5 +1,6 @@
 """在临时空白工作区验证真实 CLI 交接；合成文本不代表语义审阅通过。"""
 
+import importlib.util
 import json
 import shutil
 import subprocess
@@ -7,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from act_plan_fixtures import VALID_ACT_PLAN
 from test_story_scaffold import ROOT, load_story_module
@@ -76,6 +78,13 @@ class WorkflowRoundtripTests(unittest.TestCase):
         self.assertIn(VALID_ACT_PLAN.rstrip(), package)
         self.assertIn("落笔前自检", package)
         self.assertNotIn("# [P0] 声口样本", package)
+
+        spec = importlib.util.spec_from_file_location("workflow_audit", self.root / "scripts/rules_audit.py")
+        audit = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(audit)
+        with mock.patch.object(audit, "ROOT", self.root), mock.patch.object(audit, "QUALITY_RULES", self.root / "references/style-guide.md"):
+            for task in ("write", "revise", "review"):
+                self.assertEqual(audit.check_context(task, 1), [], task)
 
         exported = self.cli("review-text", 1).stdout
         self.assertIn(prose, exported)
