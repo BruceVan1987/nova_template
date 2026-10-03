@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from test_story_scaffold import load_story_module
-VALID_ACT_PLAN = ""
+from act_plan_fixtures import VALID_ACT_PLAN
 
 
 class ChapterReviewTests(unittest.TestCase):

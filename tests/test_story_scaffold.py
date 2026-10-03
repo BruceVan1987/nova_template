@@ -16,6 +16,10 @@ STORY = ROOT / "scripts" / "story.py"
 AUDIENCE_AUDIT = ROOT / "scripts" / "audience_audit.py"
 RULES_AUDIT = ROOT / "scripts" / "rules_audit.py"
 CONFIG = ROOT / "novel-project.json"
+# 空骨架用例只在模板仓库里成立；进入项目模式后，真实内容的健康度直接由
+# `story.py lint` 与 `story.py context-audit` 检查，不在单元测试里假装仓库为空。
+PROJECT_MODE = json.loads(CONFIG.read_text(encoding="utf-8")).get("mode") == "project"
+SCAFFOLD_ONLY = unittest.skipIf(PROJECT_MODE, "项目模式：真实内容改由 lint / context-audit 命令检查")
 
 
 def load_story_module():
@@ -52,17 +56,20 @@ class EmptyScaffoldTests(unittest.TestCase):
         for name in agent_names:
             self.assertTrue((ROOT / ".agents" / "skills" / name).is_symlink())
 
+    @SCAFFOLD_ONLY
     def test_lint_accepts_empty_scaffold(self):
         result = run("lint")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("未发现问题", result.stdout)
 
+    @SCAFFOLD_ONLY
     def test_context_audit_accepts_empty_scaffold(self):
         result = run("context-audit")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("核心常驻包合计", result.stdout)
         self.assertIn("暂无迁移基线", result.stdout)
 
+    @SCAFFOLD_ONLY
     def test_catalog_and_stats_accept_empty_scaffold(self):
         first = run("catalog", "--refresh")
         second = run("catalog")
@@ -94,8 +101,10 @@ class EmptyScaffoldTests(unittest.TestCase):
             self.assertIsNone(chapters[0]["body"])
 
     def test_plan_context_is_bounded_and_has_story_contract(self):
-        result = run("context", "--task", "plan", "--chapter", 1, "--max-chars", 35000)
+        result = run("context", "--task", "plan", "--chapter", 1)
         self.assertEqual(result.returncode, 0, result.stderr)
+        budget = json.loads(CONFIG.read_text(encoding="utf-8"))["context"]["default_max_chars"]
+        self.assertIn(f"/{budget} 字符", result.stdout)
         self.assertIn("故事硬约束", result.stdout)
         self.assertIn("story.md", result.stdout)
 
@@ -175,6 +184,7 @@ class EmptyScaffoldTests(unittest.TestCase):
         self.assertIn("情绪释放服从处境", view)
         self.assertIn("控制卡、章纲和状态文件只提供因果", view)
         self.assertNotIn("## 6. 高频 AI 痕迹", view)
+        self.assertNotIn("落笔前自检", view)
 
     def test_prose_lint_separates_hard_leaks_from_style_risks(self):
         story = load_story_module()
@@ -205,6 +215,9 @@ class EmptyScaffoldTests(unittest.TestCase):
         body = "---\n\n他遂跟着队伍进了城。\n"
         self.assertEqual(story.find_prose_style_issues(body), [])
         self.assertEqual(story.find_prose_style_warnings(body), [])
+
+
+
 
     def test_direction_context_uses_candidate_pool(self):
         result = run("context", "--task", "direction", "--max-chars", 35000)

@@ -51,6 +51,7 @@ CHAPTERS_INDEX_PATH = CHAPTERS_DIR / "_index.md"
 CHARACTERS_DIR = ROOT / "characters"
 WORLDBUILDING_DIR = ROOT / "worldbuilding"
 PLOT_ARCS_DIR = ROOT / "plot" / "arcs"
+TIMELINE_PATH = ROOT / "plot" / "timeline.md"
 CHARACTER_PIPELINE_PATH = ROOT / "plot" / "character-pipeline.md"
 PROMISES_INDEX = ROOT / "continuity" / "promises" / "_index.md"
 STATE_PATH = ROOT / "continuity" / "state.md"
@@ -129,6 +130,7 @@ LINT_CONFIG = PROJECT_CONFIG["lint"]
 
 CONTEXT_TASKS = ("plan", "write", "revise", "review", "direction")
 CONTEXT_PRIORITIES = ("P0", "P1", "P2")
+ACT_PLAN_HEADERS = ("幕次", "时段与地点", "幕初状态", "本幕依次发生的事", "知情变化与触发点", "幕末状态")
 CHARACTER_CONTEXT_SCOPES = {"standard", "direction-only"}
 DIRECTION_PIPELINE_SECTION = "方向冷人物候选池"
 ACTIVE_PROMISE_STATUSES = {"待回收", "阶段性推进", "长线", "待确认归档"}
@@ -287,8 +289,8 @@ def _reject_if_story_setup(action):
 def _atomic_write_text(path, text):
     """在目标目录写完临时文件后原子替换。
 
-    reindex 会同时重建多份索引；单份索引即使在写入中断时，
-    也必须保留旧的完整版本，不得留下半张人物表。
+    索引、审核记录与上下文包即使在写入中断时，
+    也必须保留旧的完整版本，不得留下半份文件。
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = None
@@ -297,8 +299,8 @@ def _atomic_write_text(path, text):
             mode="w", encoding="utf-8", dir=path.parent,
             prefix=f".{path.name}.", suffix=".tmp", delete=False,
         ) as handle:
-            handle.write(text)
             temp_path = Path(handle.name)
+            handle.write(text)
         temp_path.replace(path)
     finally:
         if temp_path is not None and temp_path.exists():
@@ -312,7 +314,13 @@ class ContextCandidate:
     path: Path
     content: str
     reason: str
+    # 渲染顺序：0 按优先级正常排列；数值越大越靠后。写作包把真实正文样本
+    # 放在末尾、落笔前自检清单再排在其后，使模型落笔前最后读到的是小说正文
+    # 与操作清单而不是台账。
     order: int = 0
+    # 规范文件的普通入口一律并入「写作质量规范」块；落笔前自检尾块借规范
+    # 原文渲染，但必须保持独立块，不参与合并。
+    merge_into_quality_rules: bool = True
 
     @property
     def size(self):
@@ -572,14 +580,22 @@ promises-planted: []
 promises-paid: []
 ---
 
-<!-- 章节控制卡（beat outline），确认通过后保留在此处作为记录 -->
+<!-- 章节控制卡：用完整白话和全名写，不用单字简称或台账缩写；确认通过后保留作记录 -->
 ## 本章控制卡
 
-- 普通愿望：
+- 本章时间范围：
+- 场面简报：
+- 已定目标：
 - 物件与动作：
-- 阻力／关系卡点：
-- 选择与代价：
+- 施压与阻力：
+- 选择与代价（暂拟路径）：
 - 落点：
+
+### 逐幕安排
+
+| 幕次 | 时段与地点 | 幕初状态 | 本幕依次发生的事 | 知情变化与触发点 | 幕末状态 |
+|---|---|---|---|---|---|
+| 1 | 待填 | 待填 | 待填 | 待填 | 待填 |
 
 ---
 
@@ -1060,6 +1076,13 @@ def cmd_ready_chapter(args):
             return _print_review_errors(errors)
         if chapter["fm"].get("status") not in ("draft", "待审核"):
             raise ValueError("ready-chapter 仅用于未确认草稿，不能把已确认章节降级")
+        # 新交付按当前控制卡检查，旧章不追溯改状态。
+        brief_error = control_card_brief_error(chapter["body"])
+        if brief_error:
+            raise ValueError(f"第 {args.chapter} 章控制卡不合格：{brief_error}")
+        act_error = control_card_act_plan_error(chapter["body"])
+        if act_error:
+            raise ValueError(f"第 {args.chapter} 章控制卡不合格：{act_error}")
         _atomic_write_text(chapter["path"], set_frontmatter_field(chapter["text"], "status", "待审核"))
         _write_chapters_index(_load_chapters(full=False))
         print(f"第 {args.chapter} 章已置为待审核；未生成正稿。")
@@ -1230,8 +1253,131 @@ def _quality_rules_view(task):
     for heading in ("1. 基本声口", "2. 对话与人物关系", "5. 叙事发动机与节奏"):
         section = _extract_section(source, heading)
         if section:
-            parts.extend(["", f"## {heading}", "", *section])
+            # 「落笔前自检」是落笔前的操作清单，只在写/改包最末单独成块，
+            # 开写视图的中段不重复载入。
+            parts.extend(["", f"## {heading}", "", *_drop_subsection(section, "落笔前自检")])
     return "\n".join(parts).strip() + "\n"
+
+
+def _drop_subsection(lines, heading):
+    """从行列表中删掉 `### heading` 小节：从标题行起到下一个同级或更高级标题。"""
+    kept, skip_level = [], None
+    for line in lines:
+        match = re.match(r"^(#+)\s+(.+?)\s*$", line)
+        if skip_level is not None:
+            if match and len(match.group(1)) <= skip_level:
+                skip_level = None
+            else:
+                continue
+        if match and match.group(2) == heading:
+            skip_level = len(match.group(1))
+            continue
+        kept.append(line)
+    return kept
+
+
+def _self_check_excerpt():
+    """提取唯一规范「落笔前自检」小节正文，作为写/改包最末的自检清单。
+
+    内容运行时取自 style-guide.md，不在别处复制条目；文件或小节缺失时
+    返回空串不放尾块，由 context-audit / rules_audit 报告缺失。
+    """
+    if not QUALITY_RULES.exists():
+        return ""
+    lines = _extract_section(QUALITY_RULES.read_text(encoding="utf-8"), "落笔前自检")
+    body = "\n".join(lines).strip()
+    if not body:
+        return ""
+    return (
+        "> 以下取自 `references/style-guide.md` 的「落笔前自检」。"
+        "本包里除上章结尾原文和声口样本以外，都是台账，只提供事实，不提供语气。\n\n"
+        f"{body}\n"
+    )
+
+
+def _is_quality_rules_path(path):
+    return (ROOT / path).resolve() == QUALITY_RULES.resolve()
+
+
+def control_card_act_plan_error(body):
+    """只核验逐幕表结构；不判断正文的时序或人物知情是否正确。"""
+    visible_body = re.sub(r"<!--.*?-->", "", body, flags=re.DOTALL)
+    if "<!--" in visible_body or "-->" in visible_body:
+        return "控制卡的 HTML 注释未闭合或格式损坏；先修复可见计划"
+    card = _control_card_view(visible_body)
+    headings = list(re.finditer(r"^###\s+逐幕安排\s*$", card, re.MULTILINE))
+    if not headings:
+        return "控制卡缺少「逐幕安排」；先锁定逐幕计划，再生成写作包"
+    if len(headings) != 1:
+        return "控制卡必须且只能有一份「逐幕安排」"
+    time_range = re.search(r"^\s*-\s*本章时间范围[：:]([^\n]*)$", card, re.MULTILINE)
+    if not time_range or _plan_cell_is_placeholder(time_range.group(1)):
+        return "「本章时间范围」缺失、为空或仍是占位"
+    section = card[headings[0].end():]
+    section = re.split(r"^#{1,3}\s+", section, maxsplit=1, flags=re.MULTILINE)[0]
+    lines = []
+    for line in section.splitlines():
+        stripped = line.strip()
+        if "|" in stripped or "｜" in stripped:
+            if not stripped.startswith("|"):
+                return "「逐幕安排」有破损表格行；每一行必须以半角 | 开头"
+            lines.append(stripped)
+    if len(lines) < 3:
+        return "「逐幕安排」必须有表头、分隔行和至少一幕"
+    rows = [[cell.strip() for cell in line.strip("|").split("|")] for line in lines]
+    if tuple(rows[0]) != ACT_PLAN_HEADERS:
+        return "「逐幕安排」表头必须为：" + "、".join(ACT_PLAN_HEADERS)
+    if len(rows[1]) != len(ACT_PLAN_HEADERS) or not all(re.fullmatch(r":?-{3,}:?", cell) for cell in rows[1]):
+        return "「逐幕安排」表头后缺少合法的 Markdown 分隔行"
+    for number, row in enumerate(rows[2:], start=1):
+        if len(row) != len(ACT_PLAN_HEADERS):
+            return f"「逐幕安排」第 {number} 行应有 {len(ACT_PLAN_HEADERS)} 格"
+        if row[0] != str(number):
+            return f"「逐幕安排」幕次必须从 1 连续递增；第 {number} 行应为 {number}"
+        for header, cell in zip(ACT_PLAN_HEADERS[1:], row[1:]):
+            if _plan_cell_is_placeholder(cell):
+                return f"「逐幕安排」第 {number} 幕的「{header}」为空或仍是占位"
+    return None
+
+
+def _plan_cell_is_placeholder(value):
+    compact = re.sub(r"[\s`*_]", "", re.sub(r"<!--.*?-->", "", value, flags=re.DOTALL))
+    return (
+        not compact
+        or bool(re.match(r"(?:待填|待补|待定|待规划|TODO\b|TBD\b)", compact, re.IGNORECASE))
+        or bool(re.fullmatch(r"(?:[—–-]+|[.。…]+)", compact))
+    )
+
+
+def cmd_plan_check(args):
+    """不写缓存或记录；缺项不能靠生成一个改稿包绕过。"""
+    try:
+        matches = []
+        for path in iter_chapter_files():
+            fm, body, _ = read_doc(path)
+            if fm.get("chapter") == args.chapter:
+                matches.append(body)
+        if len(matches) != 1:
+            raise ValueError(f"第 {args.chapter} 章必须有且只有一份草稿，实际找到 {len(matches)} 份")
+        error = control_card_act_plan_error(matches[0])
+        if error:
+            raise ValueError(f"第 {args.chapter} 章计划未就绪：{error}")
+    except (OSError, ValueError) as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 1
+    print(f"第 {args.chapter} 章时间范围与逐幕表结构完整；正文时序与知情仍须按原文核对。")
+    return 0
+
+
+def control_card_brief_error(body):
+    """控制卡缺少或只有空壳「场面简报」时返回说明，否则返回 None。"""
+    card = _control_card_view(body)
+    match = re.search(r"场面简报[：:]\s*(.*)", card)
+    if not match:
+        return "控制卡没有「场面简报」；先用完整白话写清谁想要什么、双方的状态、谁会先作出选择、停在哪个画面"
+    if len(re.sub(r"\s", "", match.group(1))) < 12:
+        return "「场面简报」还是空的或只有一两个词；用三到五句完整白话写"
+    return None
 
 
 def _control_card_view(body):
@@ -1886,7 +2032,53 @@ def _direction_pipeline_extract():
 
 def _render_context_package(task, chapter, focuses, candidates, targets, max_chars):
     unique, seen = [], set()
+    quality_rules = None
+    timeline = None
+    arc_sources = {}
     for candidate in candidates:
+        if candidate.path.resolve() == TIMELINE_PATH.resolve():
+            # 时间线必须保留全源文。显式 --include、等价路径或关键词入口
+            # 只合并到默认 P0 主块，不能重复计费或把消息排程裁成局部视图。
+            if timeline is None:
+                timeline = ContextCandidate(
+                    "P0", "故事时间线", TIMELINE_PATH,
+                    TIMELINE_PATH.read_text(encoding="utf-8"),
+                    "日期、行动与消息时钟必读；规划和作者侧排程不自动增加人物知情",
+                )
+                unique.append(timeline)
+            if candidate.reason == "--include" and not timeline.reason.startswith("--include"):
+                timeline.reason = "--include；" + timeline.reason
+            continue
+        resolved_path = candidate.path.resolve()
+        if resolved_path.parent == PLOT_ARCS_DIR.resolve():
+            # 当前单元与显式纳入都使用同份全文；只合并这类唯一事实源。
+            # 章节的声口、结尾和正文等多视图仍按各自标签保留。
+            previous_arc = arc_sources.get(resolved_path)
+            if previous_arc is None:
+                arc_sources[resolved_path] = candidate
+                unique.append(candidate)
+            else:
+                if CONTEXT_PRIORITIES.index(candidate.priority) < CONTEXT_PRIORITIES.index(previous_arc.priority):
+                    previous_arc.priority = candidate.priority
+                if candidate.reason == "--include" and not previous_arc.reason.startswith("--include"):
+                    previous_arc.reason = "--include；" + previous_arc.reason
+            continue
+        if _is_quality_rules_path(candidate.path) and candidate.merge_into_quality_rules:
+            # 唯一规范只保留本任务对应视图；显式纳入或其他入口只能提高
+            # 优先级，不能借不同标签／等价路径把全文带回 write 包。
+            # 落笔前自检尾块是独立的操作清单，跳出不参与合并。
+            if quality_rules is None:
+                quality_rules = ContextCandidate(
+                    candidate.priority, "写作质量规范", QUALITY_RULES,
+                    _quality_rules_view(task),
+                    "开写只载正向写作视图" if task == "write" else "载入完整规范",
+                )
+                unique.append(quality_rules)
+            elif CONTEXT_PRIORITIES.index(candidate.priority) < CONTEXT_PRIORITIES.index(quality_rules.priority):
+                quality_rules.priority = candidate.priority
+            if candidate.reason == "--include" and not quality_rules.reason.startswith("--include"):
+                quality_rules.reason = "--include；" + quality_rules.reason
+            continue
         key = (candidate.label, str(candidate.path))
         if key not in seen:
             seen.add(key)
@@ -1916,7 +2108,6 @@ def _render_context_package(task, chapter, focuses, candidates, targets, max_cha
             else:
                 omitted.append(candidate)
 
-    selected.sort(key=lambda candidate: candidate.order)
     chapter_label = f" 第{chapter}章" if chapter is not None else ""
     lines = [
         f"# 任务上下文：{task}{chapter_label}", "",
@@ -1935,7 +2126,12 @@ def _render_context_package(task, chapter, focuses, candidates, targets, max_cha
         for candidate in omitted:
             rel = candidate.path.relative_to(ROOT)
             lines.append(f"- {candidate.priority} `{rel}` · {candidate.label} · {candidate.size}字符 · {candidate.reason}")
-    for candidate in selected + targets:
+    body_order = (
+        [c for c in selected if not c.order]
+        + targets
+        + sorted((c for c in selected if c.order), key=lambda c: c.order)
+    )
+    for candidate in body_order:
         rel = candidate.path.relative_to(ROOT)
         lines.extend([
             "", "---", "",
@@ -2012,6 +2208,17 @@ def build_context(task, chapter, focuses=None, includes=None, max_chars=None, vo
     if task == "direction":
         return _build_direction_context(chapter, focuses, includes, max_chars)
 
+    if not TIMELINE_PATH.is_file():
+        raise ValueError("缺少必需时间线 plot/timeline.md；请先补齐事实源再生成上下文")
+
+    if task == "write":
+        if not target:
+            raise ValueError(f"第 {chapter} 章没有控制卡；请先创建草稿并锁定逐幕计划，再生成写作包")
+        _hydrate_chapter(target)
+        act_error = control_card_act_plan_error(target["body"])
+        if act_error:
+            raise ValueError(f"第 {chapter} 章不可开写：{act_error}")
+
     all_chars = _character_file_map()
     chars = _character_file_map("standard")
     direction_focus_paths = {
@@ -2044,9 +2251,15 @@ def build_context(task, chapter, focuses=None, includes=None, max_chars=None, vo
             if canonical and canonical not in profile_order:
                 profile_order.append(canonical)
 
+    present_profiles = set()
+
     def absorb_frontmatter(fm, include_profiles):
         ordered_profiles = _frontmatter_profile_order(fm, chars)
         characters = set(ordered_profiles)
+        for raw_name in [fm.get("pov"), *(fm.get("characters") or [])]:
+            path = chars.get(str(raw_name or "").strip())
+            if path:
+                present_profiles.add(path.stem)
         objects = {str(x) for x in (fm.get("objects") or []) if x}
         mentions = {
             str(x) for x in (fm.get("mentions") or [])
@@ -2074,7 +2287,7 @@ def build_context(task, chapter, focuses=None, includes=None, max_chars=None, vo
     arc_characters = _characters_mentioned_in_text(arc_text, chars)
     # 卷纲覆盖数十章，里面点名的人物不等于下一章都会出场。把整卷人物
     # 一律当作热档，会在长篇后期挤掉真正必须承接的上章结尾。显式焦点
-    # 与目标／上章人物仍是 P1；仅在卷纲出现的人物降为预算允许时再取。
+    # 与目标／上章实际出场人物是 P0；仅在卷纲出现的人物按预算补充。
     character_terms.update(arc_characters)
     terms.update(arc_characters)
 
@@ -2101,6 +2314,10 @@ def build_context(task, chapter, focuses=None, includes=None, max_chars=None, vo
 
     story_label = "故事核心" if task == "write" else "故事硬约束"
     candidates = [ContextCandidate("P0", story_label, ROOT / "story.md", _story_core(task), "所有任务必读")]
+    candidates.append(ContextCandidate(
+        "P0", "故事时间线", TIMELINE_PATH, TIMELINE_PATH.read_text(encoding="utf-8"),
+        "日期、行动与消息时钟必读；规划和作者侧排程不自动增加人物知情",
+    ))
     if direction_focus_paths:
         names = "、".join(sorted(path.stem for path in direction_focus_paths))
         candidates.append(ContextCandidate(
@@ -2126,14 +2343,15 @@ def build_context(task, chapter, focuses=None, includes=None, max_chars=None, vo
         if target and task in ("revise", "review"):
             state_fm, _, _ = read_doc(STATE_PATH)
             state_chapter = state_fm.get("last-updated-chapter")
-            if isinstance(state_chapter, int) and state_chapter > chapter:
+            if isinstance(state_chapter, int) and (state_chapter > chapter or (task == "revise" and state_chapter == chapter)):
                 state = (
                     f"> 时点警告：这是第{state_chapter}章末的最新快照。修订第{chapter}章时，"
-                    "只可据此执行长期边界和“不得越界”；人物当时的位置、伤情、物品状态与知情进度，"
-                    "必须以目标正文、时间线和截至该章的归档事实为准，不得从未来倒灌。\n\n"
+                    "只可据此执行长期边界和“不得越界”；它已含本章末或更晚的结果，不能当成幕初状态。"
+                    "人物当时的位置、伤情、物品状态与知情进度，必须结合截至上一章的边界、"
+                    "目标章逐幕计划、正文与时间线还原，不得从本章旧结局或后续状态倒灌。\n\n"
                     + state
                 )
-                state_reason += f"；最新快照晚于目标章，仅供边界核验"
+                state_reason += "；章末快照仅供边界核验，不作幕初状态"
     if state:
         candidates.append(ContextCandidate("P0", "当前状态", STATE_PATH, state, state_reason))
     voice_path, voice_text = _voice_sample(chapters, voice_chapter)
@@ -2147,7 +2365,7 @@ def build_context(task, chapter, focuses=None, includes=None, max_chars=None, vo
         if default_voice:
             candidates.append(ContextCandidate(
                 "P0", "声口样本", VOICE_SAMPLES_PATH, default_voice,
-                "默认载入作者认可的正文节选；只作 HOW 参照，排在事实材料之后", order=3,
+                "默认载入作者认可的正文节选；只作 HOW 参照，排在落笔前自检之前", order=3,
             ))
     if task in ("revise", "review") and target:
         scene_log = _scene_log_sections(chapter)
@@ -2183,45 +2401,59 @@ def build_context(task, chapter, focuses=None, includes=None, max_chars=None, vo
     if target and task in ("revise", "review"):
         _hydrate_chapter(target)
         targets.append(ContextCandidate("TARGET", "目标章节全文", target["path"], target["text"], "目标正文，不计辅助预算"))
-    elif target and task == "write":
+    elif target and task in ("plan", "write"):
         _hydrate_chapter(target)
         control_card = _control_card_view(target["body"])
         if control_card:
             candidates.append(ContextCandidate(
-                "P0", "目标章正向控制卡", target["path"], control_card,
-                "正文开写只读取已确认场景材料，不载入整份卷纲", order=2,
+                "P0", "目标章正向控制卡" if task == "write" else "目标章控制卡", target["path"], control_card,
+                "逐幕安排完整原样载入；开写只读锁定场景材料，不载入整份卷纲"
+                if task == "write" else "已有计划完整原样载入，供继续讨论与锁定",
+                order=2 if task == "write" else 0,
             ))
 
     # 正文质量只有一个事实源。write 包只取其中正向写作段；revise/review
     # 载入全文做事实、知情与去 AI 味审计。这样边界是静默过滤器，不是正文素材。
     if task in ("write", "revise", "review") and QUALITY_RULES.exists():
         candidates.append(ContextCandidate(
-            "P1", "写作质量规范", QUALITY_RULES,
+            "P0", "写作质量规范", QUALITY_RULES,
             _quality_rules_view(task),
             "开写只载正向写作视图" if task == "write" else "冷读/改稿载入完整规范",
         ))
 
+    # 「落笔前自检」只放进写/改包最末，单独成块、不并入写作质量规范；
+    # 规范缺这一节时不放尾块，由 context-audit / rules_audit 报告缺失。
+    if task in ("write", "revise"):
+        self_check = _self_check_excerpt()
+        if self_check:
+            candidates.append(ContextCandidate(
+                "P0", "落笔前自检", QUALITY_RULES, self_check,
+                "唯一规范第 1 节原文；落笔前最后读，排在声口样本之后",
+                order=4, merge_into_quality_rules=False,
+            ))
+
     if arc and task != "write":
-        candidates.append(ContextCandidate("P1", f"当前 arc：{arc.stem}", arc, arc_text, "章号落入进行中最具体 arc"))
+        candidates.append(ContextCandidate("P0", f"当前 arc：{arc.stem}", arc, arc_text, "章号落入进行中最具体 arc；已锁定单元必读"))
 
     # 已存在目标章的场景地点属于正文直连事实，优先于仅在 mentions 中被
     # 顺带提及的人物。下一章规划仍按预算选地点，避免把上章所有场所倒灌。
     if target and task in ("write", "revise", "review"):
         for path in _matching_files(WORLDBUILDING_DIR, location_terms):
             candidates.append(ContextCandidate(
-                "P1", f"设定：{path.stem}", path,
+                "P0", f"设定：{path.stem}", path,
                 _worldbuilding_write_view(path) if task == "write" else path.read_text(encoding="utf-8"),
                 "目标章节直连地点",
             ))
 
-    # 目标章／上章人物热档要早于调度建议和摘要入包；预算紧时也先保
-    # 直接承接人物。卷纲里仅被远期节点点名的人物稍后按 P2 尝试召回。
+    # 目标章／上章实际出场人物热档为 P0；预算不足就报错，不能静默省略。
+    # 仅被提及的人物按 P1 补充，卷纲远期点名人物稍后按 P2 尝试召回。
     archive_cutoff = _archived_through()
     for term in profile_order:
         path = chars.get(term)
         if path:
             cold_path = CHARACTER_ARCHIVE_DIR / path.name
             explicit_focus = path in active_focus_paths
+            profile_priority = "P0" if explicit_focus or path.stem in present_profiles else "P1"
             needs_deep_history = explicit_focus or (
                 target
                 and task in ("revise", "review")
@@ -2230,9 +2462,16 @@ def build_context(task, chapter, focuses=None, includes=None, max_chars=None, vo
             )
             if task == "write":
                 candidates.append(ContextCandidate(
-                    "P0" if explicit_focus else "P1", f"人物：{path.stem}", path,
+                    profile_priority, f"人物：{path.stem}", path,
                     _character_write_profile(path),
                     "显式焦点；正向人物卡" if explicit_focus else "上章人物；正向人物卡",
+                ))
+            elif task == "plan" and not explicit_focus and path.stem not in present_profiles:
+                # 上章只被提及的人物，规划时只需知道他是谁、想要什么；
+                # 需要其关系史时用 --focus 召回热档，不让提及名单挤掉在场人物。
+                candidates.append(ContextCandidate(
+                    "P1", f"人物：{path.stem}", path, _character_write_profile(path),
+                    "上章仅被提及；正向人物卡，需要旧史时 --focus",
                 ))
             elif explicit_focus and not cold_path.exists():
                 # --focus 的含义是“本章确实依赖此人”。没有拆出冷档时，直接把
@@ -2245,7 +2484,6 @@ def build_context(task, chapter, focuses=None, includes=None, max_chars=None, vo
             else:
                 hot_cutoff = _character_hot_cutoff(path, archive_cutoff)
                 hot = _character_hot_profile(path, hot_cutoff)
-                profile_priority = "P0" if explicit_focus else "P1"
                 candidates.append(ContextCandidate(
                     profile_priority, f"人物：{path.stem}", path, hot,
                     "显式焦点；旧章流水已折叠" if explicit_focus
@@ -2350,7 +2588,7 @@ def cmd_context(args):
             args.task, chapter, args.focus, args.include, args.max_chars,
             voice_chapter=args.voice_chapter,
         )
-    except ValueError as exc:
+    except (OSError, ValueError) as exc:
         print(f"错误：{exc}", file=sys.stderr)
         return 2
     if args.out:
@@ -2361,12 +2599,67 @@ def cmd_context(args):
         except ValueError:
             print("错误：--out 必须位于 .story-cache/ 内", file=sys.stderr)
             return 2
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(output, encoding="utf-8")
+        try:
+            _atomic_write_text(out, output)
+        except OSError as exc:
+            print(f"错误：无法保存上下文包 {out.relative_to(ROOT)}：{exc}", file=sys.stderr)
+            return 2
         print(f"已生成 {out.relative_to(ROOT)}")
     else:
         print(output, end="")
     return 0
+
+
+def _self_check_tail_ok(selected):
+    voices = [c for c in selected if c.label == "声口样本" or c.label.startswith("声口样章")]
+    tails = [c for c in selected if c.label == "落笔前自检"]
+    if _self_check_excerpt() and not tails:
+        return False
+    if tails and any(c.order >= tails[0].order for c in selected if c not in tails):
+        return False
+    return not voices or all(c.order <= voices[0].order for c in selected if c not in tails)
+
+
+def _full_timeline_loaded(selected):
+    """只认实际纳入一次的完整 P0 源文，不把省略清单或裁切视图算作时钟。"""
+    if not TIMELINE_PATH.is_file():
+        return False
+    timelines = [candidate for candidate in selected if candidate.path.resolve() == TIMELINE_PATH.resolve()]
+    return (
+        len(timelines) == 1
+        and timelines[0].priority == "P0"
+        and timelines[0].content == TIMELINE_PATH.read_text(encoding="utf-8")
+    )
+
+
+def _missing_required_chapter_materials(task, chapter, fm, selected):
+    """审计实际 P0 来源，不能把省略清单或仅提及的人物当成必需材料。"""
+    chars = _character_file_map("standard")
+    expected = {}
+    for name in [fm.get("pov"), *(fm.get("characters") or [])]:
+        path = chars.get(str(name or "").strip())
+        if path:
+            expected[path.resolve()] = f"人物：{path.stem}"
+    if task in ("write", "revise", "review"):
+        for path in _matching_files(WORLDBUILDING_DIR, set(fm.get("locations") or [])):
+            expected[path.resolve()] = f"地点：{path.stem}"
+    if task != "write":
+        arc = _current_arc(chapter)
+        if arc:
+            expected[arc.resolve()] = f"当前单元：{arc.stem}"
+    selected_paths = {candidate.path.resolve() for candidate in selected if candidate.priority == "P0"}
+    missing = [label for path, label in expected.items() if path not in selected_paths]
+    if task in ("plan", "write"):
+        target = _chapter_by_number(_load_chapters(full=False), chapter)
+        if target:
+            _hydrate_chapter(target)
+            card = _control_card_view(target["body"])
+            if card:
+                label = "目标章正向控制卡" if task == "write" else "目标章控制卡"
+                cards = [candidate for candidate in selected if candidate.label == label]
+                if not (len(cards) == 1 and cards[0].priority == "P0" and cards[0].content == card):
+                    missing.append("完整逐幕控制卡" if task == "write" else "完整目标章控制卡")
+    return missing
 
 
 def cmd_context_audit(args):
@@ -2548,7 +2841,7 @@ def cmd_context_audit(args):
         chars = _character_file_map("standard")
         expected_profiles = set()
         if previous:
-            for name in (previous["fm"].get("characters") or []) + (previous["fm"].get("mentions") or []):
+            for name in [previous["fm"].get("pov"), *(previous["fm"].get("characters") or [])]:
                 path = chars.get(str(name))
                 if path:
                     expected_profiles.add(path.stem)
@@ -2558,11 +2851,15 @@ def cmd_context_audit(args):
         missing_profiles = sorted(expected_profiles - selected_profiles)
         has_state = any(candidate.label == "当前状态" for candidate in selected)
         has_ending = not previous or any(candidate.label == "上章结尾原文" for candidate in selected)
+        has_timeline = _full_timeline_loaded(selected)
+        missing_materials = _missing_required_chapter_materials(
+            "plan", max_chapter + 1, previous["fm"] if previous else {}, selected,
+        )
         omitted_direct_profiles = [
             candidate.path.stem for candidate in omitted
             if candidate.label.startswith("人物：") and candidate.path.stem in expected_profiles
         ]
-        complete = not missing_profiles and has_state and has_ending and not omitted_direct_profiles
+        complete = not missing_profiles and has_state and has_ending and has_timeline and not omitted_direct_profiles and not missing_materials
         status = "OK" if estimate <= default_context_limit and complete else "缺项"
         print(f"- 默认下一章计划包: {estimate}/{default_context_limit} 字符 [{status}]")
         if missing_profiles:
@@ -2573,6 +2870,10 @@ def cmd_context_audit(args):
             print("  - 缺少完整当前状态/知情边界")
         if not has_ending:
             print("  - 缺少上章结尾原文")
+        if not has_timeline:
+            print("  - 故事时间线未作为完整 P0 源文恰好载入一次")
+        if missing_materials:
+            print(f"  - 缺少 P0 章节必需资料: {'、'.join(missing_materials)}")
         failed |= estimate > default_context_limit or not complete
     except ValueError as exc:
         print(f"- 默认上下文包: 失败（{exc}）")
@@ -2595,17 +2896,35 @@ def cmd_context_audit(args):
                 )
             ]
             has_state = any(candidate.label == "当前状态" for candidate in selected)
-            has_quality_rules = sum(candidate.label == "写作质量规范" for candidate in selected) == 1
-            status = "OK" if estimate <= default_context_limit and has_state and has_quality_rules and not omitted_direct else "缺项"
+            has_timeline = _full_timeline_loaded(selected)
+            missing_materials = _missing_required_chapter_materials("write", max_chapter, latest["fm"], selected)
+            has_quality_rules = sum(
+                _is_quality_rules_path(candidate.path) and candidate.merge_into_quality_rules
+                for candidate in selected
+            ) == 1
+            tail_ok = True
+            if VOICE_SAMPLES_PATH.exists():
+                tail_ok = _self_check_tail_ok(selected)
+            status = (
+                "OK" if estimate <= default_context_limit and has_state and has_timeline and has_quality_rules
+                and not omitted_direct and not missing_materials and tail_ok else "缺项"
+            )
             print(f"- 最近章写作包: {estimate}/{default_context_limit} 字符 [{status}]")
+            if not tail_ok:
+                print("  - 默认声口样本与落笔前自检未载入，或没有按序排在包末")
+            failed |= not tail_ok
             if omitted_direct:
                 names = "、".join(candidate.path.stem for candidate in omitted_direct)
                 print(f"  - 省略章节直连资料: {names}")
             if not has_state:
                 print("  - 缺少当前状态/完整知情边界")
+            if not has_timeline:
+                print("  - 故事时间线未作为完整 P0 源文恰好载入一次")
+            if missing_materials:
+                print(f"  - 缺少 P0 章节必需资料: {'、'.join(missing_materials)}")
             if not has_quality_rules:
                 print("  - 写作质量规范未且仅未载入一次")
-            failed |= estimate > default_context_limit or not has_state or not has_quality_rules or bool(omitted_direct)
+            failed |= estimate > default_context_limit or not has_state or not has_timeline or not has_quality_rules or bool(omitted_direct) or bool(missing_materials)
         except ValueError as exc:
             print(f"- 最近章写作包: 失败（{exc}）")
             failed = True
@@ -2614,14 +2933,28 @@ def cmd_context_audit(args):
             try:
                 _, selected, _ = build_context(task, max_chapter, [], [], default_context_limit)
                 has_state = any(candidate.label == "当前状态" for candidate in selected)
-                has_quality_rules = sum(candidate.label == "写作质量规范" for candidate in selected) == 1
-                status = "OK" if has_state and has_quality_rules else "缺项"
+                has_timeline = _full_timeline_loaded(selected)
+                missing_materials = _missing_required_chapter_materials(task, max_chapter, latest["fm"], selected)
+                has_quality_rules = sum(
+                    _is_quality_rules_path(candidate.path) and candidate.merge_into_quality_rules
+                    for candidate in selected
+                ) == 1
+                tail_ok = True
+                if task == "revise" and VOICE_SAMPLES_PATH.exists():
+                    tail_ok = _self_check_tail_ok(selected)
+                status = "OK" if has_state and has_timeline and has_quality_rules and not missing_materials and tail_ok else "缺项"
                 print(f"- 最近章{task}包当前状态: [{status}]")
                 if not has_state:
                     print("  - 缺少当前状态/完整知情边界")
+                if not has_timeline:
+                    print("  - 故事时间线未作为完整 P0 源文恰好载入一次")
+                if missing_materials:
+                    print(f"  - 缺少 P0 章节必需资料: {'、'.join(missing_materials)}")
                 if not has_quality_rules:
                     print("  - 写作质量规范未且仅未载入一次")
-                failed |= not has_state or not has_quality_rules
+                if not tail_ok:
+                    print("  - 声口样本与落笔前自检没有按序排在包末")
+                failed |= not has_state or not has_timeline or not has_quality_rules or bool(missing_materials) or not tail_ok
             except ValueError as exc:
                 print(f"- 最近章{task}包: 失败（{exc}）")
                 failed = True
@@ -2887,6 +3220,11 @@ def _skeleton_lint(chapters):
     if VOICE_SAMPLES_PATH.exists():
         _, errors = _voice_sample_excerpts(chapters)
         problems.extend(f"[声口样本失效] {error}" for error in errors)
+    for chapter in chapters:
+        if chapter["fm"].get("status") == "draft":
+            error = control_card_brief_error(chapter["body"] or "")
+            if error:
+                warnings.append(f"[控制卡缺场面简报] {chapter['path'].relative_to(ROOT)}：{error}")
     return problems, warnings
 
 
@@ -3265,6 +3603,10 @@ def main():
     p_review_text = sub.add_parser("review-text", help="只读输出草稿正文，不写缓存或记录")
     p_review_text.add_argument("chapter", type=int)
     p_review_text.set_defaults(func=cmd_review_text)
+
+    p_plan = sub.add_parser("plan-check", help="只读核验本章时间范围和逐幕计划结构")
+    p_plan.add_argument("chapter", type=int)
+    p_plan.set_defaults(func=cmd_plan_check)
 
     for name, handler in (("review-start", cmd_review_start), ("review-finish", cmd_review_finish)):
         p_review = sub.add_parser(name, help="开始/完成一轮绑定正文版本的冷读记录")

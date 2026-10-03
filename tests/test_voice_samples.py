@@ -14,7 +14,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from test_story_scaffold import ROOT, load_story_module
-VALID_ACT_PLAN = ""
+from act_plan_fixtures import VALID_ACT_PLAN
 
 CONFIRMED_PROSE = (
     "门开了一条缝。\n\n"

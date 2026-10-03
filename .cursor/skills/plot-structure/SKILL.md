@@ -1,10 +1,9 @@
 ---
 name: plot-structure
 description: >-
-  Plans and updates the overall outline, volume (arc) breakdowns, and
-  timeline. Use when the user asks to plan an outline, design a volume/arc,
-  organize subplots, or check the timeline, e.g. "大纲", "分卷规划", "设计一条故事线",
-  "梳理时间线".
+  讨论下一章或单章逐幕计划，规划全书大纲、分卷、故事线与时间线。
+  用于“下一章怎么安排”“规划这一章”“分幕计划”“大纲”“设计故事线”“梳理时间线”。
+  计划讨论不授权写正文；明确写章或先拟单章控制卡交给 chapter-writing。
 ---
 
 # 大纲与故事线规划
@@ -17,11 +16,16 @@ description: >-
 
 ## 执行步骤
 
-1. 规划新的一卷/一条故事线前，先读 [`plot/arcs/_index.md`](../../../plot/arcs/_index.md)，并运行 `python3 scripts/story.py context --task plan --chapter <下一章> --max-chars 35000`。不得只凭对话摘要或 arc 列表规划。
-2. 先确定本 arc 真正要改变的局面，再按 [`references/style-guide.md`](../../../references/style-guide.md) 的“叙事发动机与节奏”完成当前单元卡，不倒推章数。随后根据计划包选定核心人物；凡准备给具名人物安排选择、笑话、冲突或关系变化，必须先确认该人物热档已在包中，需要追溯旧关系时再用 `--focus`。
-3. 涉及人质、诈谋、秘密资源或多方博弈时，关键机制锁定前先列对抗核验：各方实际知道什么、持有什么、想要什么、最怕什么、可以如何拒绝或反制。任一方必须忘记已知信息、凭空知道秘密或放弃明显更优解时，方案不成立。
-4. 创建/更新 arc 文件：写入已经锁定的单元卡与粗粒度因果节点。还在讨论的试探性手段不得提前写入 `continuity/state.md` 或当作已发生事实。
+1. 规划新的一卷/一条故事线或讨论下一章前，先读 [`plot/arcs/_index.md`](../../../plot/arcs/_index.md)，并运行 `python3 scripts/story.py context --task plan --chapter <下一章> --out .story-cache/context/plan-<下一章>.md`。命令使用项目默认字符预算，自动带入时间线与消息排程；按[上下文完整读取协议](../../../references/context-reading.md)分段读完整个文件，检查纳入与省略清单，不得只凭生成回执、对话摘要或 arc 列表规划。
+2. 先确定本 arc 真正要改变的局面，再读取 [`references/style-guide.md`](../../../references/style-guide.md)，按其中“对话与人物关系”“叙事发动机与节奏”完成当前单元卡，不倒推章数；`plan` 包默认不自动装入该规范，本轮已完整读取则不重复加载。随后根据计划包选定核心人物；凡准备给具名人物安排选择、笑话、冲突或关系变化，必须先确认该人物热档已在包中，需要追溯旧关系时再用 `--focus`。
+3. 涉及人质、诈谋、秘密资源或多方博弈时，关键机制锁定前先列对抗核验：各方实际知道什么、持有什么、想要什么、被逼急时会做到多狠、要到什么地步才退。先填“做到多狠”，再填“何时退”；配角不必人人有退路或苦衷。按唯一规范判断其策略为何改变，不以作者视角的最优解代替角色判断；若路径必须依赖角色无缘由地忘记已知信息、凭空知道秘密或配合交底，就调整路径。角色因恐惧、虚荣、执念或误判而作出的错误选择仍可保留。
+4. 创建/更新 arc 文件：分别记录作者已定目标与候选达成路径，只保留粗粒度因果节点。按唯一规范的[场内的信息与决定](../../../references/style-guide.md#场内的信息与决定)区分必须承接的先后与可调整的具体表现；具体问法、动作和停顿不因写进规划就自动成为硬约束。还在讨论的试探性手段不得提前写入 `continuity/state.md` 或当作已发生事实；变更作者明确锁定的方向仍须先讨论。
+   - arc 只存还没写的计划和仍然有效的决定。某章写完后，该章的控制卡、实际结果与执行账移入 [`continuity/scene-log.md`](../../../continuity/scene-log.md)，arc 里只留一句进度；仍然生效的决定（例如某处的控制方式）提成独立小节保留。卷纲用完整白话和全名写，不用单字简称。
 5. 按 [`references/chapter-template.md`](../../../references/chapter-template.md) 拆章；缺项时依唯一质量规范并章、压成消息或更换入口。卷纲只记录将真正出现在场上的正向材料，不列逐章禁用项或验收边界。切换外部 POV 或更换全书默认发动机时，记录作者对该章的明确授权。声口或场面滋味已经漂移时，可用 `context --voice-chapter <已确认章号>` 定向载入一个样章，只参照 HOW。
 6. 更新 [`plot/_index.md`](../../../plot/_index.md) 和对应 arc；涉及具体时点时同步 [`plot/timeline.md`](../../../plot/timeline.md)，最后运行 `python3 scripts/story.py reindex`。
 
-逐章实际经过、旁听者与钱物执行账写入 `continuity/scene-log.md` 对应章号段；人物档案、当前状态、地理和活跃悬念只存当前有效事实。规划中的候选路径不登记成已发生事实。
+## 单章计划讨论与交接
+
+- 从当前实际进度进入下一章，先分清已定单元方向与本轮暂拟场景。作者只要求讨论时，返回计划供讨论，不创建章节正文、不确认上一章，也不把暂拟安排登记成已发生事实。
+- 单章计划按 [`references/chapter-template.md`](../../../references/chapter-template.md) 给出本章时间范围和逐幕安排；讨论稿标明暂拟，锁定稿沿用相同结构。简单章可以一幕，复杂章按场景或局势转折分幕，不固定幕数。
+- 作者要求交接写作时，由 `chapter-writing` 将选定计划收进目标章唯一控制卡，完成 `plan-check`，再生成并完整读取 `write` 包。幕表不能只留在聊天、大纲附件或计划摘要里；写手实际收到的包中须有各幕完整内容。

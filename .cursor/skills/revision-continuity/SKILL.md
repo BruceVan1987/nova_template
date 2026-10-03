@@ -1,10 +1,7 @@
 ---
 name: revision-continuity
 description: >-
-  Revises draft or confirmed chapters, fixes continuity and prose problems,
-  updates structured story state, and validates the result. Use for 按意见改稿、
-  修复一致性、去AI味重写或用户确认定稿。Opinion-only review of an unconfirmed
-  draft goes to the read-only draft-reviewer.
+  按明确意见修改章节正文或修复连续性；只读审稿与单纯确认定稿不使用本技能。
 ---
 
 # 改稿与连续性修复
@@ -15,11 +12,11 @@ description: >-
 
 ```bash
 python3 scripts/story.py lint
-python3 scripts/story.py context --task revise --chapter <章号> --max-chars 35000
+python3 scripts/story.py context --task revise --chapter <章号> --out .story-cache/context/revise-<章号>.md
 ```
 
-- 完整读取目标章和上下文包；包内必须有 `P0 当前状态`、关键知情范围，并且只能载入一次写作质量规范。缺项先修脚本，不另开规范文件补读第二遍。
-- 若提示当前快照晚于目标章，只把它用于长期禁区；目标章当时的位置、伤情、物品与知识以该章、时间线和截至该章的归档为准，不能倒灌未来。
+- 按[上下文完整读取协议](../../../references/context-reading.md)分段读完目标章和上下文文件；包内必须有 `P0 故事时间线`、`P0 当前状态`、关键知情范围，并且只能载入一次写作质量规范。命令使用项目默认字符预算，额外材料超出时提高 `--max-chars`，不删必需事实迁就上限。缺项先修脚本，不另开规范文件补读第二遍。
+- 当前快照属于目标章末或更晚时点时，不能直接当成本章开头已知。整章重排从上一章边界和已锁定的本章控制卡还原各幕入口；旧版章末结论只用于识别待改结果及后续连续性影响，不能倒灌到现场。
 - 修改涉及旧伏笔、方位、亲属、具体数量或关系阶段时，用 `--focus`／`--include` 定向补入原始证据；伏笔必须回读首次出现原文。
 - 信件、口信、案卷与远程汇报中的写信人和被具体描写者也属于事实依赖人物，档案被省略时先补入。
 
@@ -30,31 +27,21 @@ python3 scripts/story.py context --task revise --chapter <章号> --max-chars 35
 1. 句子、动作或场面问题：只改正文相关段。
 2. 人物能力、亲属、关系或声口事实变化：同步人物档案／关系卡。
 3. 位置、物品、秘密、日期、伏笔或悬念：同步连续性文件。
-4. 结构性无聊、人物工具化或认知前提错误：重排叙事发动机或压缩章数，不能只换措辞。
+4. 结构性无聊、人物工具化或认知前提错误（重写未确认章时，控制卡按当前模板补「场面简报」，`ready-chapter` 交付会检查）：先保留作者已定目标，把控制卡具体路径重新视作候选；按唯一规范从关键人物此刻的愿望与策略变化重排场景，不能只换措辞或补解释句。
 5. 跨章复发且作者确认可泛化：才修改唯一质量规范；稳定可识别的问题优先写脚本。
 
 保留作者已经打磨的句子和无关段落。关系增温只纠正已经亲近却写得生硬的部分，不为整齐反向清理一般关系的自然热络；除非出现泄密、越权或明确连续性硬伤。
 
+反馈涉及声口混同，或需要重排关键人物的多轮交锋时，先按写章技能的[角色立场推演细则](../chapter-writing/references/character-stance.md)为受影响的关键角色做只读推演；沿用其输入、返回材料和串行正文边界，不把改稿交给多个写手。主执行者收拢后，只把本场选定的表达差异补入现有控制卡的场面简报，保留已发生的事实与作者锁定的方向。时序反馈或结构重写按 [`references/chapter-template.md`](../../../references/chapter-template.md)补齐或更新同一卡内的时间范围和逐幕安排，运行 `python3 scripts/story.py plan-check <章号>` 后，刷新并完整读取 `revise` 包，再按写章技能的逐幕承接步骤串行改稿；初读旧卡可以缺表，但不能用初读包代替补卡后的落笔包。旧卡在下一次待审核交付前也须据原文补齐时间范围与幕表；纯措辞修复只登记既有顺序，不借此重新设计人物或扩写场景。未确认的表达习惯不自动升格为永久人设。
+
 ## 3. 冷读与受众审计
 
-修改后完整读取并执行 [`references/chapter-review-workflow.md`](../../../references/chapter-review-workflow.md)。脱离用户意见，先做 `overall` 整体复读和“五道门”核对，再单独做 `language` 语言冷读，记录实际原句和判断。局部改稿至少复读修改段前后三段及关联段，语言轮完整读当前正文；不能复用修改前的版本记录。所有改稿章都运行：
-
-```bash
-python3 scripts/audience_audit.py <目标章>
-```
-
-每条命中按真实受众分类。脚本没有命中时，仍检查信件、口信、公开对白、题字与案卷；“对方听不懂”不是保密理由。
+修改后进入 [`references/chapter-review-workflow.md`](../../../references/chapter-review-workflow.md)，先把纯正文交给未参与构思和修改的首读者；第 1 节的 `revise` 包只用于主执行者后续事实核对，不发给首读者。相关事实源已变时刷新受影响上下文，完成其余冷读与受众审计，随后按第 4 节同步事实，再回到该协议的“交稿与确认”收口。
 
 若修复一处后改变了后文指代、数量、物品位置、人物知情或关系反应，继续改到闭合，不能只保证用户选中的那一行单独成立。
 
 ## 4. 同步与验证
 
 - 只编辑 `chapters/drafts/`；已确认章也先改草稿。
-- 字数变化后运行 `wordcount --write`；事实变化同步 state、timeline、人物、关系、伏笔／悬念与术语。
-- 运行 `python3 scripts/story.py review-check <章号>` 和 `python3 scripts/story.py lint`，修清与本次改动相关的问题；若校验后又改正文，重新执行受影响的冷读与核验。
-- 用户尚未确认的改稿用 `python3 scripts/story.py ready-chapter <章号>` 交付为待审核，不手改状态。用户明确确认后运行 `python3 scripts/story.py confirm-chapter <章号>`；已确认旧章改动后也必须重跑该命令刷新正稿，但不用 `ready-chapter` 降级。
-- 最后只汇报改了什么、验证结果和仍需用户决定的事项，不整章重贴正文。
-
-逐章实际经过、旁听者与钱物执行账写入 `continuity/scene-log.md` 对应章号段；人物档案、当前状态、地理和活跃悬念只存当前有效事实。规划中的候选路径不登记成已发生事实。
-
-`references/voice-samples.md` 可配置已确认正文的起止锚句，写作／改稿包会将节选放在事实材料之后。新项目允许为空；已有条目失效时先更新锚点。样本只约束表达，不提供目标章事实。
+- 事实变化同步 state、timeline、人物、关系、伏笔／悬念与术语；仅措辞变化不重写事实源。事实源只改写成最新状态；本章旁听者、执行账与走位的变化改在 [`continuity/scene-log.md`](../../../continuity/scene-log.md) 对应章号段。
+- 字数更新、检查命令、已确认章的正稿刷新和交稿汇报均按交稿协议执行；修清与本次改动相关的问题后交付。
