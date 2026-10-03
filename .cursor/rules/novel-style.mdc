@@ -5,11 +5,11 @@ alwaysApply: true
 
 # 网文工作区硬约束
 
-- 正文不是设定事实源。写作、改稿先运行 `python3 scripts/story.py context --task <plan|write|revise|review> --chapter N`，按纳入清单定向读取；不得默认通读全书或凭记忆补设定。
+- 正文不是设定事实源。写作、改稿先运行 `python3 scripts/story.py context --task <plan|write|revise|review> --chapter N --out .story-cache/context/<任务>-N.md`，按 `references/context-reading.md` 读完文件并核对纳入清单；不得默认通读全书或凭记忆补设定。
 - 审稿先按 `references/draft-review-protocol.md` 读取纯正文并固定首读判断，再定向核对事实；隔离模式只读委派快照与规范。
 - 人称、时态、基调和禁忌以 [`story.md`](../../story.md) 为准；人物、关系、物品、秘密、时间与方位分别以 `characters/`、`continuity/`、`plot/timeline.md` 和 `worldbuilding/geography.md` 为准。
 - 正文质量只服从 [`references/style-guide.md`](../../references/style-guide.md)。不要从 Skill、旧清单或对话摘要拼出第二套规则。
-- 除非用户已经确认连续产出多章，新章先提交控制卡再写。草稿格式见 [`references/chapter-template.md`](../../references/chapter-template.md)。
+- 按 AGENTS.md 的授权边界完成控制卡；明确写指定章且单元已锁定时直接继续，先看控制卡的请求在提交后停止。草稿格式见 [`references/chapter-template.md`](../../references/chapter-template.md)。
 - 正文只编辑 `chapters/drafts/`。人物、物品、知识、关系、伏笔、悬念、时间与术语发生变化时，同步对应结构化文件。
 - 交稿前按 [章节交稿检查流程](../../references/chapter-review-workflow.md) 分开整体与语言冷读；运行 `python3 scripts/audience_audit.py <章节路径>` 并逐项核对实际受众，再运行 `python3 scripts/story.py wordcount --write` 与 `python3 scripts/story.py ready-chapter <章号>`（内含记录核验和 `lint`）。只读审阅不写记录或状态。
 - 只有用户明确确认后才能运行 `python3 scripts/story.py confirm-chapter <章号>`。禁止手工编辑 `chapters/final/` 或手改已确认状态。

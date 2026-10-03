@@ -32,7 +32,7 @@ description: >-
 `characters/` 根目录保存稳定人物事实，但上下文温度由 `context-scope` 决定：
 
 - `standard` 是章节任务可按相关性加载的普通档案；缺少字段时也按 `standard` 处理。
-- `direction-only` 是方向冷档，只能由主 Codex 在计划模式做中长期方向规划时通过 `python3 scripts/story.py context --task direction --focus <人物>` 显式读取。普通 plan/write/revise/review、章节写作与改稿 Skill 均不展开；本 Skill 只负责建立、维护和转档，不主动把方向候选推荐进正文。
+- `direction-only` 是方向冷档，只能由主 agent 在计划模式做中长期方向规划时通过 `python3 scripts/story.py context --task direction --focus <人物>` 显式读取。普通 plan/write/revise/review、章节写作与改稿 Skill 均不展开；本 Skill 只负责建立、维护和转档，不主动把方向候选推荐进正文。
 - 只有作者确认该人物进入未来三章后，才把 `direction-only` 转为 `standard`，随后才能进入章节控制卡。不得因为档案已经存在反向制造出场入口。
 - 已经正式出场、只是暂时离开镜头的人不降为 `direction-only`；继续保持 `standard`，由本章相关性和预算决定是否加载。
 - 方向冷档与 [`continuity/archive/characters/`](../../../continuity/archive/characters/) 的人物旧史不是一类东西：前者是尚未启用的未来方向，后者是已确认且结束的历史阶段。
@@ -52,5 +52,3 @@ description: >-
 - 关系升级时封闭旧行的章号范围，再新增下一阶段；不得用最新亲密程度覆盖旧章。
 - 一次自然热络、礼貌亲近或单方面误判不等于关系升级。只有称呼权限、信任边界、共享秘密、责任或相处方式发生可复用变化时才更新关系卡。
 - 修改完成后运行 `python3 scripts/story.py lint`，同一人物对的阶段范围不得重叠。
-
-逐章实际经过、旁听者与钱物执行账写入 `continuity/scene-log.md` 对应章号段；人物档案、当前状态、地理和活跃悬念只存当前有效事实。规划中的候选路径不登记成已发生事实。
