@@ -5,7 +5,8 @@ alwaysApply: true
 
 # 网文工作区硬约束
 
-- 正文不是设定事实源。写作、改稿或审稿先运行 `python3 scripts/story.py context --task <plan|write|revise|review> --chapter N`，按纳入清单定向读取；不得默认通读全书或凭记忆补设定。
+- 正文不是设定事实源。写作、改稿先运行 `python3 scripts/story.py context --task <plan|write|revise|review> --chapter N`，按纳入清单定向读取；不得默认通读全书或凭记忆补设定。
+- 审稿先按 `references/draft-review-protocol.md` 读取纯正文并固定首读判断，再定向核对事实；隔离模式只读委派快照与规范。
 - 人称、时态、基调和禁忌以 [`story.md`](../../story.md) 为准；人物、关系、物品、秘密、时间与方位分别以 `characters/`、`continuity/`、`plot/timeline.md` 和 `worldbuilding/geography.md` 为准。
 - 正文质量只服从 [`references/style-guide.md`](../../references/style-guide.md)。不要从 Skill、旧清单或对话摘要拼出第二套规则。
 - 除非用户已经确认连续产出多章，新章先提交控制卡再写。草稿格式见 [`references/chapter-template.md`](../../references/chapter-template.md)。

@@ -905,6 +905,73 @@ def _print_review_errors(errors):
     return 1
 
 
+def _reader_review_target(number):
+    """直接定位草稿，不经过会写缓存的章节加载器；其他章节只读 frontmatter。"""
+    matches = []
+    for path in iter_chapter_files():
+        header = []
+        with path.open(encoding="utf-8") as source:
+            if source.readline().rstrip("\n") == "---":
+                for line in source:
+                    if line.rstrip("\n") == "---":
+                        break
+                    header.append(line)
+        fm = parse_frontmatter("".join(header))
+        filename_number = re.match(r"^(\d+)-", path.name)
+        if fm.get("chapter") == number or (
+                filename_number and int(filename_number.group(1)) == number):
+            matches.append(path)
+    if len(matches) != 1:
+        raise ValueError(f"第 {number} 章必须有且只有一份草稿，实际找到 {len(matches)} 份")
+    fm, body, text = read_doc(matches[0])
+    raw_fm, _ = split_frontmatter(text)
+    if not raw_fm or fm.get("chapter") != number:
+        raise ValueError("目标章 frontmatter 缺失、损坏或章号与文件名不一致")
+    keys = []
+    for line in raw_fm.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        field = re.match(r"^([A-Za-z0-9_-]+):", line)
+        if field:
+            keys.append(field.group(1))
+        elif not re.match(r"^\s*-\s+", line):
+            raise ValueError("目标章 frontmatter 格式损坏，不能导出读者正文")
+    if len(keys) != len(set(keys)):
+        raise ValueError("目标章 frontmatter 有重复字段，不能导出读者正文")
+    if fm.get("status") == "已确认":
+        raise ValueError("目标章已确认；请改走修订检查，不使用待审草稿冷读导出")
+    if fm.get("status") not in ("draft", "待审核"):
+        raise ValueError("review-text 仅用于 status 为 draft 或 待审核 的草稿")
+    title = fm.get("title")
+    if not isinstance(title, str) or not title.strip() or "<!--" in title or "-->" in title:
+        raise ValueError("目标章标题缺失或格式损坏，不能导出读者正文")
+    clean_body = re.sub(r"<!--.*?-->", "", body, flags=re.DOTALL)
+    if "<!--" in clean_body or "-->" in clean_body:
+        raise ValueError("目标章 HTML 工作注释未闭合或格式损坏，不能导出读者正文")
+    lines = clean_body.strip().splitlines()
+    if not lines or lines[0].strip() != "## 本章控制卡":
+        raise ValueError("目标章缺少合法的本章控制卡区块，不能确定正文边界")
+    if not any(line.strip() == "---" for line in lines[1:]):
+        raise ValueError("目标章缺少控制卡与正文之间的 --- 分隔，不能导出读者正文")
+    prose = extract_final_prose(clean_body)
+    if not prose or re.match(r"^注[：:]", prose):
+        raise ValueError("目标章没有正文，不能导出读者正文")
+    if re.search(r"^\s*## 本章控制卡\s*$", prose, re.MULTILINE):
+        raise ValueError("正文分隔后仍有控制卡，章节格式损坏，不能导出读者正文")
+    return fm, clean_body
+
+
+def cmd_review_text(args):
+    """给独立读者的纯输出入口；不创建上下文包、缓存、快照或审阅记录。"""
+    try:
+        fm, body = _reader_review_target(args.chapter)
+        print(build_final_content(fm, body), end="")
+        return 0
+    except (OSError, ValueError) as exc:
+        print(f"[读者正文导出失败] {exc}", file=sys.stderr)
+        return 1
+
+
 def cmd_review_start(args):
     try:
         chapter = _review_target(args.chapter)
@@ -2860,6 +2927,10 @@ def main():
     p_confirm = sub.add_parser("confirm-chapter", help="确认章节：从草稿生成正稿并把 status 改为 已确认")
     p_confirm.add_argument("chapter", type=int, help="章号（整数）")
     p_confirm.set_defaults(func=cmd_confirm_chapter)
+
+    p_review_text = sub.add_parser("review-text", help="只读输出草稿正文，不写缓存或记录")
+    p_review_text.add_argument("chapter", type=int)
+    p_review_text.set_defaults(func=cmd_review_text)
 
     for name, handler in (("review-start", cmd_review_start), ("review-finish", cmd_review_finish)):
         p_review = sub.add_parser(name, help="开始/完成一轮绑定正文版本的冷读记录")

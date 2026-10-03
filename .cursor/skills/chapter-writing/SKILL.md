@@ -61,21 +61,9 @@ python3 scripts/story.py new-chapter <卷号> <标题>
 
 ## 4. 交稿前检查
 
-正文完成后，先生成并完整读取冷读包：
+按 [章节交稿检查流程](../../../references/chapter-review-workflow.md) 先完成独立纯正文首读，再由主执行者生成 `context --task review --chapter <章号>` 核对事实。事实包不发给独立首读者；语言轮由另一个无目标章先验的只读审阅者完成。
 
-```bash
-python3 scripts/story.py context --task review --chapter <章号> --max-chars 35000
-```
-
-此时才加载完整质量规范、当前知情范围与禁线。完整读取并执行 [`references/chapter-review-workflow.md`](../../../references/chapter-review-workflow.md)：先做 `overall` 整体冷读与“五道门”核对，完成后再做独立的 `language` 语言冷读；两轮由当前执行者串行完成。每轮用 `review-start` 取得无控制卡的完整正文，记录具体原句与判断后用 `review-finish` 核验；正文改动后按流程复读，不以旧版本记录交差。随后运行：
-
-```bash
-python3 scripts/audience_audit.py chapters/drafts/<卷>/<章节>.md
-```
-
-逐项把命中行标为旁白、内心、私密频道、公开台词或可经手文本，写明实际受众。零命中不等于自动通过，仍要检查未收录关键词的信件和公开输出。
-
-若发现正文确有信息缺口，补能改变人物理解或行动的事实；若只是规范要求已经满足，不追加“没有／不是／不代表”的验收总结。修改承载方式或场景因果，不在 Skill 中寻找另一套同义规则。
+按该协议处置问题、复读和核对实际受众，然后按第 5 节回写事实。正文质量只引用 `references/style-guide.md`，记录就绪不能替代正文证据。
 
 ## 5. 回写事实
 
