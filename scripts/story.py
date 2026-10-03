@@ -64,6 +64,7 @@ PROMISES_ARCHIVE = ARCHIVE_DIR / "promises.md"
 QUESTIONS_ARCHIVE = ARCHIVE_DIR / "questions.md"
 MIGRATION_MAP = ARCHIVE_DIR / "migration-map.md"
 SCENE_LOG_PATH = ROOT / "continuity" / "scene-log.md"
+VOICE_SAMPLES_PATH = ROOT / "references" / "voice-samples.md"
 QUALITY_RULES = ROOT / "references" / "style-guide.md"
 CONTEXT_CACHE_DIR = ROOT / ".story-cache"
 PROJECT_CONFIG_PATH = ROOT / "novel-project.json"
@@ -311,6 +312,7 @@ class ContextCandidate:
     path: Path
     content: str
     reason: str
+    order: int = 0
 
     @property
     def size(self):
@@ -1459,6 +1461,80 @@ def _voice_sample(chapters, chapter_number, max_chars=None):
 
 _SCENE_LOG_HEADING_RE = re.compile(r"^##\s+(\d{4})(?:\s*[—–-]\s*(\d{4}))?(?:\s+(.*))?$")
 
+_VOICE_FIELD_RE = re.compile(r"^-\s*(章节|起|止)[：:]\s*(.+?)\s*$")
+
+def _voice_sample_entries():
+    """读取 references/voice-samples.md 的锚点条目。
+
+    样本文件只存章号与起止原句，正文仍以章节为唯一来源，避免复制出第二份正文。
+    """
+    if not VOICE_SAMPLES_PATH.exists():
+        return []
+    entries, current = [], None
+    for line in VOICE_SAMPLES_PATH.read_text(encoding="utf-8").splitlines():
+        heading = re.match(r"^##\s+(.+?)\s*$", line)
+        if heading:
+            current = {"name": heading.group(1), "chapter": None, "start": "", "end": ""}
+            entries.append(current)
+            continue
+        field = _VOICE_FIELD_RE.match(line)
+        if current is None or not field:
+            continue
+        key, value = field.groups()
+        if key == "章节":
+            current["chapter"] = int(value) if value.isdigit() else value
+        else:
+            current["start" if key == "起" else "end"] = value
+    return entries
+
+
+def _voice_sample_excerpts(chapters):
+    """按锚点截取默认声口样本，返回 (节选列表, 错误列表)。"""
+    excerpts, errors = [], []
+    for entry in _voice_sample_entries():
+        label = f"声口样本「{entry['name']}」"
+        number = entry["chapter"]
+        chapter = _chapter_by_number(chapters, number) if isinstance(number, int) else None
+        if not chapter:
+            errors.append(f"{label} 的章节「{number}」不存在")
+            continue
+        if chapter["fm"].get("status") != "已确认":
+            errors.append(f"{label} 取自第{number}章，但该章尚未确认；样本只能取作者已确认的正文")
+            continue
+        if not entry["start"] or not entry["end"]:
+            errors.append(f"{label} 缺少「起」或「止」锚句")
+            continue
+        _hydrate_chapter(chapter)
+        prose = extract_final_prose(chapter["body"])
+        start = prose.find(entry["start"])
+        end = prose.find(entry["end"], start) if start != -1 else -1
+        if start == -1 or end == -1:
+            errors.append(f"{label} 的锚句在第{number}章当前正文中找不到，可能正文已改；请更新锚句")
+            continue
+        excerpts.append((entry["name"], number, prose[start:end + len(entry["end"])].strip()))
+    return excerpts, errors
+
+
+def _default_voice_samples(chapters, max_chars=None):
+    excerpts, _ = _voice_sample_excerpts(chapters)
+    if not excerpts:
+        return ""
+    max_chars = max_chars or CONTEXT_CONFIG["voice_sample_chars"]
+    parts = [
+        "> 以下是作者认可的正文节选，放在事实材料之后，作为落笔前的正文参照。",
+        "> 只模仿叙述密度、对白的来回、动作怎样承接情绪和人物表达方式；"
+        "其中人物、物品和剧情都不是目标章事实。",
+    ]
+    used = sum(len(part) for part in parts)
+    for name, number, text in excerpts:
+        block = f"\n## {name}（第{number}章）\n\n{text}\n"
+        if used + len(block) > max_chars:
+            break
+        parts.append(block)
+        used += len(block)
+    return "\n".join(parts).strip() + "\n"
+
+
 def _scene_log_sections(chapter_number):
     """返回现场记录中覆盖指定章号的段落。
 
@@ -1840,6 +1916,7 @@ def _render_context_package(task, chapter, focuses, candidates, targets, max_cha
             else:
                 omitted.append(candidate)
 
+    selected.sort(key=lambda candidate: candidate.order)
     chapter_label = f" 第{chapter}章" if chapter is not None else ""
     lines = [
         f"# 任务上下文：{task}{chapter_label}", "",
@@ -2063,8 +2140,15 @@ def build_context(task, chapter, focuses=None, includes=None, max_chars=None, vo
     if voice_text:
         candidates.append(ContextCandidate(
             "P0", f"声口样章：第{voice_chapter}章", voice_path, voice_text,
-            "显式指定；只作 HOW 参照，不作事实来源",
+            "显式指定；只作 HOW 参照，不作事实来源", order=3,
         ))
+    elif task in ("write", "revise"):
+        default_voice = _default_voice_samples(chapters)
+        if default_voice:
+            candidates.append(ContextCandidate(
+                "P0", "声口样本", VOICE_SAMPLES_PATH, default_voice,
+                "默认载入作者认可的正文节选；只作 HOW 参照，排在事实材料之后", order=3,
+            ))
     if task in ("revise", "review") and target:
         scene_log = _scene_log_sections(chapter)
         if scene_log:
@@ -2105,7 +2189,7 @@ def build_context(task, chapter, focuses=None, includes=None, max_chars=None, vo
         if control_card:
             candidates.append(ContextCandidate(
                 "P0", "目标章正向控制卡", target["path"], control_card,
-                "正文开写只读取已确认场景材料，不载入整份卷纲",
+                "正文开写只读取已确认场景材料，不载入整份卷纲", order=2,
             ))
 
     # 正文质量只有一个事实源。write 包只取其中正向写作段；revise/review
@@ -2203,7 +2287,7 @@ def build_context(task, chapter, focuses=None, includes=None, max_chars=None, vo
         )
         candidates.append(ContextCandidate(
             "P0", "上章结尾原文", previous["path"], ending,
-            "保留情绪、称呼与关系强度，不用摘要代替正文",
+            "保留情绪、称呼与关系强度，不用摘要代替正文", order=1,
         ))
     if task == "plan":
         direct_profiles = set(profile_order)
@@ -2800,6 +2884,9 @@ def _skeleton_lint(chapters):
                 f"（{entries[0][:30]}…）；核对是否把逐章经过或 state.md 已有的当前状态写进了人物档案"
             )
 
+    if VOICE_SAMPLES_PATH.exists():
+        _, errors = _voice_sample_excerpts(chapters)
+        problems.extend(f"[声口样本失效] {error}" for error in errors)
     return problems, warnings
 
 

@@ -25,6 +25,7 @@
 | 专有名词 | `glossary/terms/` 与 `glossary/_index.md` |
 | 逐章经过、旁听者与执行账 | `continuity/scene-log.md`（按章号取用，开写不载入） |
 | 正文质量规则 | `references/style-guide.md`（唯一规范） |
+| 可选声口锚点 | `references/voice-samples.md`（正文仍在已确认章节） |
 | 草稿格式 | `references/chapter-template.md` |
 | 命名与实体格式 | `references/naming-conventions.md`、`references/entity-templates.md` |
 
