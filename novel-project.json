@@ -23,5 +23,9 @@
   },
   "writing": {
     "target_total_words": 0
+  },
+  "lint": {
+    "name_shorthand": [],
+    "character_entry_warn_chars": 300
   }
 }

@@ -2681,9 +2681,74 @@ def _character_long_entries(lines, threshold):
     return hits
 
 
+def _draft_head(text):
+    """草稿中会进入上下文的部分：frontmatter 与控制卡，不含读者正文。"""
+    raw_fm, body = split_frontmatter(text)
+    return raw_fm + body.split("\n---\n", 1)[0]
+
+
+def _shorthand_scan_files():
+    """会被 plan / write / revise 上下文读取的非正文文档。"""
+    paths = [ROOT / "story.md"]
+    for directory in (ROOT / "continuity", CHARACTERS_DIR, ROOT / "plot", WORLDBUILDING_DIR):
+        if directory.exists():
+            paths.extend(sorted(directory.rglob("*.md")))
+    return [path for path in paths if path.is_file()]
+
+
+def find_name_shorthand(text, rules=None):
+    """返回 (行号, 简称, 片段)：文档里用单字简称指代人物的位置。"""
+    rules = LINT_CONFIG.get("name_shorthand") if rules is None else rules
+    hits = []
+    for rule in rules or []:
+        short = str(rule.get("short") or "")
+        if len(short) != 1:
+            continue
+        allowed = [str(word) for word in rule.get("allowed") or [] if short in str(word)]
+        for line_no, line in enumerate(text.splitlines(), start=1):
+            for match in re.finditer(re.escape(short), line):
+                index = match.start()
+                covered = False
+                for word in allowed:
+                    offset = word.find(short)
+                    while offset != -1:
+                        start = index - offset
+                        if start >= 0 and line[start:start + len(word)] == word:
+                            covered = True
+                            break
+                        offset = word.find(short, offset + 1)
+                    if covered:
+                        break
+                if not covered:
+                    hits.append((line_no, short, line[max(0, index - 8):index + 9].strip()))
+    return hits
+
+
 def _skeleton_lint(chapters):
     """骨架防劣化检查：单字简称、事实源日志化、声口样本与控制卡简报。"""
     problems, warnings = [], []
+
+    rules = LINT_CONFIG.get("name_shorthand") or []
+    if rules:
+        for path in _shorthand_scan_files():
+            hits = find_name_shorthand(path.read_text(encoding="utf-8"), rules)
+            if hits:
+                sample = "；".join(f"第{line}行「{snippet}」" for line, _, snippet in hits[:3])
+                full = "／".join(str(rule.get("full")) for rule in rules)
+                problems.append(
+                    f"[单字简称] {path.relative_to(ROOT)} 有 {len(hits)} 处用单字简称指人（{sample}）；"
+                    f"进入上下文的文档一律写全名（{full}），避免把台账缩写体带进正文"
+                )
+        for chapter in chapters:
+            if chapter["fm"].get("status") == "已确认":
+                continue
+            text = chapter["path"].read_text(encoding="utf-8")
+            hits = find_name_shorthand(_draft_head(text), rules)
+            if hits:
+                sample = "；".join(f"「{snippet}」" for _, _, snippet in hits[:3])
+                problems.append(
+                    f"[单字简称] {chapter['path'].relative_to(ROOT)} 的元数据或控制卡有 {len(hits)} 处单字简称（{sample}）"
+                )
 
     log_problem_files = [STATE_PATH]
     if WORLDBUILDING_DIR.exists():
