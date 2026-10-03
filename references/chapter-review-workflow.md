@@ -91,7 +91,7 @@ python3 scripts/story.py wordcount --write
 python3 scripts/story.py ready-chapter N
 ```
 
-`ready-chapter` 已包含两轮记录核验和 `lint`，检查记录是否齐全、对应当前正文和规范、问题是否已处置及原句证据是否存在。全部成功才置为 `待审核`，失败不改状态。同一版本不紧邻重复运行 `review-check` 或 `lint`；检查后又有相关改动，须按上文重新核验。不得手改状态绕过交稿入口。
+`ready-chapter` 已包含两轮记录核验和 `lint`，检查记录是否齐全、对应当前正文和规范、问题是否已处置及原句证据是否存在。项目启用了 `lint.light_register` 时，还核验自定词频阈值及语言轮保留证据；新模板默认关闭该作品偏好。全部成功才置为 `待审核`，失败不改状态。同一版本不紧邻重复运行 `review-check` 或 `lint`；检查后又有相关改动，须按上文重新核验。不得手改状态绕过交稿入口。
 
 已确认旧章修订后，按调用 skill 回写变化的事实；字数变化时运行 `wordcount --write`，再运行 `lint`，按作者授权用 `confirm-chapter N` 刷新正稿，不用 `ready-chapter` 降级。纯确认由 `story-maintenance` 核验当前版本，必要时完成本协议的补检后直接确认，不走未确认改稿的事实回写与待审核收口。
 

@@ -96,7 +96,9 @@ DEFAULT_PROJECT_CONFIG = {
         "character_hot_other_bytes": 6000,
     },
     "writing": {"target_total_words": 0},
-    "lint": {"character_entry_warn_chars": 300, "name_shorthand": []},
+    "lint": {"character_entry_warn_chars": 300, "name_shorthand": [],
+             "light_register": {"enabled": False, "warn_per_k": 1.0, "block_per_k": 2.0},
+             "bare_dialogue": {"enabled": False}},
 }
 
 
@@ -189,6 +191,17 @@ PROSE_ARCHAIC_PARAGRAPH_THRESHOLD = 3
 PROSE_ELLIPSIS_WARNING_THRESHOLD = 5
 PROSE_SHORT_SENTENCE_MAX_CHARS = 9
 PROSE_SHORT_SENTENCE_RUN = 5
+
+
+LIGHT_REGISTER_RE = re.compile(
+    r"三日|两日|白日|明早|今早|昨夜|次晨|倘若|余下|近来|如今|眼下|作罢|原处"
+    r"|(?<![方随顺即以不简轻大小])便(?![宜利当饭条道服衣携于])"
+    r"|(?<![般自宛恍])若(?!干)"
+)
+# 「白话自检」第 4 类：以引号开头、引号外有效字数很少的段落视为纯对白段，
+# 连续多段时提醒在对白之间补动作。
+BARE_DIALOGUE_MAX_OUTSIDE_CHARS = 8
+BARE_DIALOGUE_RUN_THRESHOLD = 4
 
 
 # ---------------------------------------------------------------------------
@@ -459,11 +472,13 @@ def find_prose_style_issues(body):
     return issues
 
 
-def find_prose_style_warnings(body):
+def find_prose_style_warnings(body, status=None):
     """返回需要语义冷读的正文声口风险。
 
     这些特征在追逐、窒息、真实迟疑、文书引用或人物固定声口中可能成立，
     因此只作每章汇总的非阻塞提示，不自动替换，也不单词判错。
+    status 传入章节 frontmatter 的 status；「白话自检」两类提醒只对
+    未确认章发出，已确认章冻结，不为旧正文追加提示。
     """
     prose_lines = extract_prose_lines(body)
     warnings = []
@@ -524,7 +539,71 @@ def find_prose_style_warnings(body):
             "请核对是否为有意加速；若不是，用动作因果、感官变化或转折关系合并部分句子",
         ))
 
+    if status == "已确认":
+        return warnings
+
+    light_cfg = LINT_CONFIG.get("light_register") or {}
+    register_pattern = _light_register_pattern()
+    warn_per_k = light_cfg.get("warn_per_k", 1.0)
+    light_hits = []
+    for line_no, line in enumerate(prose_lines, start=1):
+        if line.strip().startswith("#"):
+            continue
+        text = re.sub(r"<!--.*?-->", "", line)
+        light_hits.extend((line_no, match.group(0)) for match in register_pattern.finditer(text) if light_cfg.get("enabled", False))
+    if light_hits:
+        char_count = count_prose_words(body)
+        density = len(light_hits) * 1000 / char_count if char_count else float("inf")
+        if density >= warn_per_k:
+            samples = "、".join(f"第{line_no}行「{word}」" for line_no, word in light_hits[:8])
+            warnings.append((
+                light_hits[0][0],
+                "轻度书面词密度",
+                f"{len(light_hits)}处（{density:.1f}/千字，阈值 {warn_per_k:g}）：{samples}",
+                "对照 style-guide「白话自检」第 1 类改成口语；文书引用或人物固定声口可保留",
+            ))
+
+    bare_runs = []
+    bare_run_start, bare_run = None, 0
+    for line_no, line in enumerate(prose_lines, start=1):
+        text = re.sub(r"<!--.*?-->", "", line).strip()
+        if not text:
+            continue
+        if (LINT_CONFIG.get("bare_dialogue") or {}).get("enabled", False) and _is_bare_dialogue_paragraph(text):
+            if not bare_run:
+                bare_run_start = line_no
+            bare_run += 1
+        else:
+            if bare_run >= BARE_DIALOGUE_RUN_THRESHOLD:
+                bare_runs.append((bare_run_start, bare_run))
+            bare_run = 0
+    if bare_run >= BARE_DIALOGUE_RUN_THRESHOLD:
+        bare_runs.append((bare_run_start, bare_run))
+    if bare_runs:
+        detail = "、".join(f"第{start}行起连续{length}段" for start, length in bare_runs[:5])
+        warnings.append((
+            bare_runs[0][0],
+            "纯对白串",
+            detail,
+            "对照 style-guide「白话自检」第 4 类，在对白之间补说话人正在做的事",
+        ))
+
     return warnings
+
+
+def _light_register_pattern():
+    pattern = (LINT_CONFIG.get("light_register") or {}).get("pattern")
+    return re.compile(pattern) if pattern is not None else LIGHT_REGISTER_RE
+
+
+def _is_bare_dialogue_paragraph(text):
+    """判断「白话自检」第 4 类的纯对白段：以引号开头、引号外有效字很少。"""
+    if not text or text[0] not in ("“", '"'):
+        return False
+    outside = re.sub(r"“[^”]*”|\"[^\"]*\"", "", text)
+    outside = re.sub(r"[“”\"'‘’]", "", outside)
+    # 引号外去掉标点与空白后的有效字数；一段只有一句台词时这里是 0。
+    return len(re.sub(r"[^\w]", "", outside)) <= BARE_DIALOGUE_MAX_OUTSIDE_CHARS
 
 
 def set_frontmatter_field(text, field, new_value):
@@ -1061,6 +1140,54 @@ def cmd_review_check(args):
     return 0
 
 
+def _light_register_gate_error(chapter, prose):
+    """ready-chapter 的白话自检门槛：轻度书面词密度超过 block_per_k 时返回出错文案。
+
+    命中若整段落在 language 轮 decision=retained 的原句出现处之内，视为已处置，
+    不再计入。行号与密度都按读者正文（_review_prose 的输出，与冷读记录和快照
+    绑定的是同一份文本，含标题行）计算。
+    """
+    config = LINT_CONFIG.get("light_register") or {}
+    if not config.get("enabled", False):
+        return None
+    block_per_k = config.get("block_per_k", 2.0)
+    try:
+        record = _read_review_record(chapter)
+    except (OSError, ValueError):
+        record = {"findings": []}
+    retained_spans = []
+    for finding in record["findings"]:
+        if (not isinstance(finding, dict) or finding.get("decision") != "retained"
+                or finding.get("stage") != "language" or not _review_text(finding.get("quote"))):
+            continue
+        start = prose.find(finding["quote"])
+        while start != -1:
+            retained_spans.append((start, start + len(finding["quote"])))
+            start = prose.find(finding["quote"], start + 1)
+    hits = [
+        match for match in _light_register_pattern().finditer(prose)
+        if not any(match.start() >= s and match.end() <= e for s, e in retained_spans)
+        and not prose[prose.rfind(chr(10), 0, match.start()) + 1:match.start()].lstrip().startswith("#")
+    ]
+    char_count = len(re.sub(r"\s", "", prose))
+    if not hits or not char_count:
+        return None
+    density = len(hits) * 1000 / char_count
+    if density <= block_per_k:
+        return None
+    samples = "、".join(
+        f"第{prose.count(chr(10), 0, match.start()) + 1}行「{match.group(0)}」"
+        for match in hits[:12]
+    )
+    if len(hits) > 12:
+        samples += "、…"
+    return (
+        f"[声口配置未通过] 第{chapter['fm'].get('chapter')}章轻度书面词 {len(hits)} 处"
+        f"（{density:.1f}/千字，阈值 {block_per_k:g}）：{samples}；"
+        "按本书声口处理，或确属引文／人物固定声口时在 language 轮 findings 里记为 retained 并写理由。"
+    )
+
+
 def cmd_ready_chapter(args):
     if _reject_if_story_setup("交付待审核草稿"):
         return 2
@@ -1083,6 +1210,10 @@ def cmd_ready_chapter(args):
         act_error = control_card_act_plan_error(chapter["body"])
         if act_error:
             raise ValueError(f"第 {args.chapter} 章控制卡不合格：{act_error}")
+        register_error = _light_register_gate_error(chapter, _review_prose(chapter))
+        if register_error:
+            print(register_error, file=sys.stderr)
+            return 1
         _atomic_write_text(chapter["path"], set_frontmatter_field(chapter["text"], "status", "待审核"))
         _write_chapters_index(_load_chapters(full=False))
         print(f"第 {args.chapter} 章已置为待审核；未生成正稿。")
@@ -3360,7 +3491,7 @@ def cmd_lint(args):
             problems.append(
                 f"[{category}] {rel} 正文第{prose_line}行命中「{matched}」：{advice}"
             )
-        for prose_line, category, matched, advice in find_prose_style_warnings(c["body"]):
+        for prose_line, category, matched, advice in find_prose_style_warnings(c["body"], status=c["fm"].get("status")):
             warnings.append(
                 f"[{category}] {rel} 从正文第{prose_line}行起命中「{matched}」：{advice}"
             )

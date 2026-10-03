@@ -26,6 +26,14 @@
   },
   "lint": {
     "name_shorthand": [],
-    "character_entry_warn_chars": 300
+    "character_entry_warn_chars": 300,
+    "light_register": {
+      "enabled": false,
+      "warn_per_k": 1.0,
+      "block_per_k": 2.0
+    },
+    "bare_dialogue": {
+      "enabled": false
+    }
   }
 }

@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import math
 from pathlib import Path
 import re
 import subprocess
@@ -19,6 +20,11 @@ def project_config_problems():
     except (OSError, json.JSONDecodeError) as exc:
         return [f"无法读取 novel-project.json: {exc}"]
     problems = []
+    if not isinstance(config, dict):
+        return ["novel-project.json 顶层必须为对象"]
+    for section in ("context", "limits", "lint"):
+        if not isinstance(config.get(section, {}), dict):
+            return [f"{section} 必须为对象"]
     if config.get("schema_version") != 1:
         problems.append("schema_version 必须为当前支持的版本 1")
     if not isinstance(config.get("template_version"), str) or not config["template_version"].strip():
@@ -30,8 +36,31 @@ def project_config_problems():
         "limits.core_total_bytes": config.get("limits", {}).get("core_total_bytes"),
     }
     for name, value in required_positive.items():
-        if not isinstance(value, int) or value <= 0:
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
             problems.append(f"{name} 必须是正整数")
+    lint = config.get("lint", {})
+    for name in ("light_register", "bare_dialogue"):
+        profile = lint.get(name, {})
+        if not isinstance(profile, dict):
+            problems.append(f"lint.{name} 必须为对象")
+            continue
+        if not isinstance(profile.get("enabled", False), bool):
+            problems.append(f"lint.{name}.enabled 必须为布尔值")
+        if name == "light_register":
+            for threshold in ("warn_per_k", "block_per_k"):
+                value = profile.get(threshold, 1 if threshold == "warn_per_k" else 2)
+                if (isinstance(value, bool) or not isinstance(value, (int, float))
+                        or not math.isfinite(value) or value <= 0):
+                    problems.append(f"lint.{name}.{threshold} 必须为有限正数")
+            if "pattern" in profile:
+                try:
+                    if not isinstance(profile["pattern"], str) or not profile["pattern"]:
+                        raise ValueError("必须为非空正则")
+                    pattern = re.compile(profile["pattern"])
+                    if pattern.search("") is not None:
+                        raise ValueError("不能匹配空字符串")
+                except (ValueError, re.error) as exc:
+                    problems.append(f"lint.{name}.pattern 无效：{exc}")
     return problems
 
 

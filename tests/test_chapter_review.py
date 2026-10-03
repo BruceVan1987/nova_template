@@ -20,6 +20,7 @@ class ChapterReviewTests(unittest.TestCase):
         self.addCleanup(self.stack.close)
         self.root = Path(self.stack.enter_context(tempfile.TemporaryDirectory()))
         self.story = load_story_module()
+        self.stack.enter_context(mock.patch.object(self.story, "LINT_CONFIG", {"light_register": {"enabled": True, "warn_per_k": 1.0, "block_per_k": 2.0}}))
         drafts = self.root / "chapters" / "drafts"
         drafts.mkdir(parents=True)
         self.chapter = drafts / "0001-test.md"
@@ -413,8 +414,39 @@ class ChapterReviewTests(unittest.TestCase):
             self.assertEqual(self.call("ready_chapter")[0], 1)
         self.assertEqual(self.chapter.read_bytes(), before)
 
+    def test_ready_blocks_when_light_register_exceeds_block_threshold(self):
+        self.write_chapter("明早他便动身。\n\n她把门关上了。")
+        self.finish_both()
+        before = self.chapter.read_bytes()
+        with mock.patch.object(self.story, "cmd_lint", return_value=0):
+            result = self.call("ready_chapter")
+        self.assertEqual(result[0], 1, result)
+        self.assertIn("[声口配置未通过]", result[2])
+        self.assertIn("明早", result[2])
+        self.assertEqual(self.chapter.read_bytes(), before)
+        self.assertIn("status: draft", self.chapter.read_text(encoding="utf-8"))
 
+    def test_ready_passes_when_hits_covered_by_retained_language_findings(self):
+        self.write_chapter("明早他便动身。\n\n她把门关上了。")
+        self.call("review_start", "overall")
+        self.note("overall")
+        self.call("review_finish", "overall")
+        self.call("review_start", "language")
+        self.note("language")
+        self.finding(decision="retained", stage="language",
+                     quote="明早他便动身。", reason="此处是人物固定声口，测试保留。")
+        self.call("review_finish", "language")
+        with mock.patch.object(self.story, "cmd_lint", return_value=0):
+            result = self.call("ready_chapter")
+        self.assertEqual(result[0], 0, result)
+        self.assertIn("status: 待审核", self.chapter.read_text(encoding="utf-8"))
 
+    def test_ready_light_register_gate_passes_low_density(self):
+        self.finish_both()
+        with mock.patch.object(self.story, "cmd_lint", return_value=0):
+            result = self.call("ready_chapter")
+        self.assertEqual(result[0], 0, result)
+        self.assertNotIn("声口配置未通过", result[2])
 
     def test_confirm_checks_records_before_export_and_ready_cannot_downgrade(self):
         self.finish_both()
