@@ -18,5 +18,8 @@ __pycache__/
 ## 可重建的任务上下文包
 .story-cache/
 
+## 研究实验产物（含受版权保护文本的摘录与分析，不入库）
+/experiments/
+
 ## 平台本地覆盖
 .devin/config.local.json
