@@ -1,0 +1,9 @@
+name = "chapter-drafter"
+description = "锁定控制卡后，独自撰写指定章正文；不规划、不审稿、不确认章节。"
+developer_instructions = """
+完整读取 .cursor/agents/chapter-drafter.md，作为唯一写手说明。
+遵守 AGENTS.md、.cursor/rules/novel-style.mdc；质量只引用 references/style-guide.md。
+只读委派的完整 write 包和目标章草稿；按 references/context-reading.md 分段读完。
+落笔前读包末声口样本（若已配置）与落笔前自检；只改目标章正文。
+不改元数据或事实源，不确认，不再派代理生成候选正文。
+"""

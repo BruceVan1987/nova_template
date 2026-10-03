@@ -32,6 +32,7 @@ RULE_ENTRYPOINTS = (
     ROOT / ".cursor" / "agents" / "draft-reviewer.md",
     ROOT / ".codex" / "agents" / "draft-reviewer.toml",
     ROOT / ".cursor" / "agents" / "chapter-drafter.md",
+    ROOT / ".codex" / "agents" / "chapter-drafter.toml",
     ROOT / "scripts" / "story.py",
 )
 # 防劣化：这些正向要求一旦被删，模型会退回“人人讲理、给台账写正文”的默认倾向。
@@ -53,6 +54,7 @@ MUST_REFERENCE_QUALITY_RULES = (
     ROOT / "references" / "draft-review-protocol.md",
     ROOT / "references" / "chapter-review-workflow.md",
     ROOT / ".cursor" / "agents" / "chapter-drafter.md",
+    ROOT / ".codex" / "agents" / "chapter-drafter.toml",
     ROOT / "scripts" / "story.py",
 )
 CANONICAL_ONLY_PHRASES = (

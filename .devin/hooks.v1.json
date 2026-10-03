@@ -1,0 +1,14 @@
+{
+  "PreToolUse": [
+    {
+      "matcher": "^(write|edit|apply_patch|notebook_edit)$",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "sh -c 'd=\"${DEVIN_PROJECT_DIR:-.}\"; f=\"$d/.devin/hooks/guard_write_paths.py\"; [ -f \"$f\" ] || exit 0; exec python3 \"$f\"'",
+          "timeout": 10
+        }
+      ]
+    }
+  ]
+}

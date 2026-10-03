@@ -17,3 +17,6 @@ __pycache__/
 
 ## 可重建的任务上下文包
 .story-cache/
+
+## 平台本地覆盖
+.devin/config.local.json

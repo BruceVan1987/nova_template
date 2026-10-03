@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Exec(python3 scripts/story.py context)",
+      "Exec(python3 scripts/story.py review-text)",
+      "Exec(python3 scripts/story.py review-check)",
+      "Exec(python3 scripts/story.py lint)",
+      "Exec(python3 scripts/story.py stats)",
+      "Exec(python3 scripts/story.py catalog)",
+      "Exec(python3 scripts/story.py context-audit)",
+      "Exec(python3 scripts/audience_audit.py)",
+      "Exec(python3 scripts/rules_audit.py)",
+      "Exec(python3 scripts/doctor.py)",
+      "Exec(python3 scripts/story.py plan-check)"
+    ],
+    "ask": [
+      "Exec(python3 scripts/story.py confirm-chapter)",
+      "Exec(python scripts/story.py confirm-chapter)",
+      "Exec(python3 .agents/skills/story-branch-rollback/scripts/rollback_chapters.py)",
+      "Exec(python3 .cursor/skills/story-branch-rollback/scripts/rollback_chapters.py)"
+    ],
+    "deny": [
+      "Write(chapters/final/**)",
+      "Write(**/chapters/final/**)",
+      "Write(.story-cache/reviews/*/snapshots/**)",
+      "Write(chapters/_index.md)",
+      "Write(characters/_index.md)",
+      "Write(worldbuilding/locations/_index.md)",
+      "Write(worldbuilding/systems/_index.md)",
+      "Write(worldbuilding/factions/_index.md)",
+      "Write(plot/arcs/_index.md)"
+    ]
+  }
+}
