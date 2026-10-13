@@ -13,7 +13,7 @@ description: >-
 
 - 在打开快照以前先检查本会话已经可见的内容。只要继承历史、运行时摘要、记忆提示、环境注入或此前消息里已经出现目标章的摘要、控制卡、修改意见、关键转折、预期结论或正文片段，本轮隔离已经失效；只报告“目标章先验污染，不能作为盲读”并停止，不得继续读快照后给出审阅结论。主执行者必须另开一个没有这些先验的临时会话。
 
-- 第一个读取的章节文件必须是委派给出的纯正文快照。除快照外，只允许读取 `references/style-guide.md` 与 `references/draft-review-protocol.md`。
+- 第一个读取的章节文件必须是委派给出的纯正文快照。除快照外，只允许读取 `references/style-guide.md`、`references/draft-review-protocol.md`；`blind-only` 还可读取作品合同 `story.md`，用于核对其中的「平台与读者节奏」。
 - 返回结论以前，禁止打开或搜索 `chapters/_index.md`、`chapters/drafts/`、章节源文件、控制卡、frontmatter、摘要、`context` 包、人物档案、连续性文件、大纲、后续计划或其他章节。不得为“锁定目标章”而列目录、查索引或运行搜索。
 - 禁止自行运行 `review-text`、`context`、`lint`、`audience_audit`、`review-start` 或任何会从章节源文件取材的命令。
 - 不使用委派前对话里的策划、修改意见、预期结论或章节摘要。它们即使出现在可见历史中，也不是审阅证据。

@@ -23,12 +23,13 @@ description: >-
 3. 人称与时态（默认建议：第三人称限知视角 + 现在时态叙述过去发生的事，即常见网文写法）
 4. 基调与文风偏好（爽感为主/写实为主/幽默/沉重……）
 5. 更新节奏与单章目标字数（决定 `target-chapter-length` 和 `update-pace`）
-6. 禁忌/边界（绝对不能出现的设定或描写）
+6. 发布平台与读者节奏：平台读者的习惯、开篇多少字内要出现改变主角处境的异常、核心能力或设定最晚第几章亮出、设定讲解能占多大篇幅（填入 `story.md` 的「平台与读者节奏」；作者没有要求就写“不设平台节奏”）
+7. 禁忌/边界（绝对不能出现的设定或描写）
 
 ## 执行步骤
 
 1. 把回答填进 [`story.md`](../../../story.md) 的 frontmatter（`title`/`genre`/`pov`/`tense`/`tone`/`target-chapter-length`/`update-pace`/`status: active`）与正文各节。
-2. 按 [`references/entity-templates.md`](../../../references/entity-templates.md) 的人物模板，在 `characters/` 下创建主角文件。
+2. 按 [`references/entity-templates.md`](../../../references/entity-templates.md) 的人物模板，在 `characters/` 下创建主角文件。主角能力、门规、守则机制这类每章都可能生效的规则体系，建在 `worldbuilding/systems/` 并标 `context-scope: core`，让各章任务包自动带上。
 3. 在 [`plot/_index.md`](../../../plot/_index.md) 的分卷表里新增第一卷一行；按 arc 模板在 `plot/arcs/` 下创建第一卷的 arc 文件（目标、关键节点粗纲）。
 4. 把 [`novel-project.json`](../../../novel-project.json) 的 `mode` 从 `template` 改为 `project`；若作者给出了全书目标字数，也写入 `writing.target_total_words`，否则保持 `0`。
 5. 运行 `python3 scripts/story.py reindex` 和 `python3 scripts/doctor.py`，让人物/arc 注册表生效并验证初始化结果。
