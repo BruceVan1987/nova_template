@@ -27,4 +27,4 @@ description: >-
 2. 完整审阅也要先读纯正文并固定首次判断，之后才定向核对连续性与前文、进行语言冷读及机械检查。
 3. 没有明显硬伤或读感问题时直接通过，不为 review 制造意见。
 
-始终只读；绝不编辑项目文件、运行 `confirm-chapter`、更改 status 或触碰 `chapters/final/`。
+始终只读；绝不编辑项目文件、运行 `confirm-chapter`、更改 status 或触碰 `chapters/final/`。唯一例外：委派明确给出 `.story-cache/relay/` 下的转交文件路径时，可把本次报告原文写入该文件。
