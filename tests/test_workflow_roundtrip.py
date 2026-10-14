@@ -107,6 +107,10 @@ class WorkflowRoundtripTests(unittest.TestCase):
         self.assertIn(prose, (self.root / "manuscript.md").read_text(encoding="utf-8"))
 
     def test_core_systems_and_growth_arc_design_stay_in_context(self):
+        self.write("story.md", (
+            "---\nstatus: active\n---\n\n## 一句话简介\n\n仅用于 CLI 测试。\n\n"
+            "## 平台与读者节奏\n\n前 500 字内出现异常。\n"
+        ))
         self.write("worldbuilding/systems/看字.md", (
             "---\nschema-version: 1\nname: 看字\ncontext-scope: core\n---\n\n"
             "## 限制与代价\n\n看清一个被改的字，就永久忘掉它。\n"
@@ -124,6 +128,7 @@ class WorkflowRoundtripTests(unittest.TestCase):
         chapter.write_text(text.replace('pov: ""', 'pov: 甲').replace('characters: []', 'characters: [甲]'), encoding="utf-8")
         self.cli("context", "--task", "plan", "--chapter", 1, "--out", ".story-cache/plan.md")
         package = (self.root / ".story-cache/plan.md").read_text(encoding="utf-8")
+        self.assertIn("前 500 字内出现异常。", package)
         self.assertIn("看清一个被改的字，就永久忘掉它。", package)
         self.assertNotIn("只在命中时加载。", package)
         self.assertIn("起点：不信任何人。", package)
