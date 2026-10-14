@@ -38,6 +38,7 @@ import argparse
 from dataclasses import dataclass
 import hashlib
 import json
+import signal
 import re
 import sys
 import tempfile
@@ -88,7 +89,7 @@ DEFAULT_PROJECT_CONFIG = {
         "state_bytes": 15000,
         "promises_bytes": 10000,
         "questions_bytes": 6000,
-        "style_guide_bytes": 12000,
+        "style_guide_bytes": 16000,
         "core_total_bytes": 50000,
         "character_source_protagonist_bytes": 12000,
         "character_source_other_bytes": 10000,
@@ -943,7 +944,10 @@ def _review_finding_errors(chapter, record):
                 if replacement not in current:
                     errors.append(f"{label} 改句不在当前正文中，须复核后更新记录")
                 elif finding["quote"] in current.replace(replacement, ""):
-                    errors.append(f"{label} 改句之外仍有原句；请补足定位上下文，核对是否真正改完")
+                    errors.append(
+                        f"{label} 改句之外仍有原句；请补足定位上下文，核对是否真正改完"
+                        "（若是保留原句并在其前后补写，replacement 须填写包含原句的完整新句段）"
+                    )
             elif finding["quote"] in current:
                 errors.append(f"{label} 声明删除的原句仍在当前正文中")
     return errors
@@ -1644,10 +1648,12 @@ def _character_hot_profile(path, cutoff):
             continue
 
         if heading in {"成长弧光", "成长弧光（本卷）", "成长弧光（本卷/全书）"} and line.strip():
-            if line.startswith("总线："):
-                kept.append(line)
-            else:
+            # 只省略带章号的逐章复述；不含章号的弧光设计（起点、转折方向、
+            # 终点）属于当前人物事实，必须留在热档里。
+            if not line.startswith("总线：") and _chapter_refs(line):
                 omitted += 1
+                continue
+            kept.append(line)
             continue
 
         if heading in _CHARACTER_HISTORY_SECTIONS and line.strip():
@@ -1848,6 +1854,19 @@ def _entity_files_under(directory):
     if not directory.exists():
         return []
     return [p for p in sorted(directory.rglob("*.md")) if p.name != "_index.md"]
+
+
+def _core_system_files():
+    """返回标记为常驻（context-scope: core）的规则体系设定。"""
+    directory = WORLDBUILDING_DIR / "systems"
+    if not directory.exists():
+        return []
+    files = []
+    for path in _entity_files_under(directory):
+        fm, _, _ = read_doc(path)
+        if str(fm.get("context-scope") or "").strip() == "core":
+            files.append(path)
+    return files
 
 
 def _matching_files(directory, terms):
@@ -2573,8 +2592,19 @@ def build_context(task, chapter, focuses=None, includes=None, max_chars=None, vo
 
     # 已存在目标章的场景地点属于正文直连事实，优先于仅在 mentions 中被
     # 顺带提及的人物。下一章规划仍按预算选地点，避免把上章所有场所倒灌。
+    # 作品级规则体系（能力代价、门规、守则机制等）每章都可能生效，不能只靠
+    # 地点或关键词命中。systems 下标记 context-scope: core 的设定常驻各章任务包。
+    core_systems = _core_system_files()
+    for path in core_systems:
+        candidates.append(ContextCandidate(
+            "P0", f"设定：{path.stem}", path, path.read_text(encoding="utf-8"),
+            "常驻规则体系（context-scope: core）",
+        ))
+
     if target and task in ("write", "revise", "review"):
         for path in _matching_files(WORLDBUILDING_DIR, location_terms):
+            if path in core_systems:
+                continue
             candidates.append(ContextCandidate(
                 "P0", f"设定：{path.stem}", path,
                 _worldbuilding_write_view(path) if task == "write" else path.read_text(encoding="utf-8"),
@@ -2676,6 +2706,8 @@ def build_context(task, chapter, focuses=None, includes=None, max_chars=None, vo
                     "仅在当前卷纲远期节点点名；预算允许时补充",
                 ))
     for path in _matching_files(WORLDBUILDING_DIR, terms):
+        if path in core_systems:
+            continue
         candidates.append(ContextCandidate("P2", f"设定：{path.stem}", path, path.read_text(encoding="utf-8"), "地点/设定关键词命中"))
     for path in (CONTINUITY_ARCHIVE, PROMISES_ARCHIVE, QUESTIONS_ARCHIVE):
         if path == CONTINUITY_ARCHIVE:
@@ -3713,6 +3745,10 @@ def cmd_compile(args):
 
 
 def main():
+    # 输出整章正文的命令常被 head 等管道截断；按默认行为静默退出，
+    # 避免在已写入记录后再抛 BrokenPipeError 误导执行者。
+    if hasattr(signal, "SIGPIPE"):
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     parser = argparse.ArgumentParser(description="网文写作工作区维护脚本")
     sub = parser.add_subparsers(dest="command", required=True)
 

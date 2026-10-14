@@ -61,6 +61,7 @@ region: ""
 ---
 schema-version: 1
 name: ""
+context-scope: standard # core=每章任务包常驻（主角能力代价、核心规则机制）；standard=按关键词命中加载
 ---
 
 ## 分级/规则

@@ -106,6 +106,29 @@ class WorkflowRoundtripTests(unittest.TestCase):
         self.cli("compile", "--out", "manuscript.md")
         self.assertIn(prose, (self.root / "manuscript.md").read_text(encoding="utf-8"))
 
+    def test_core_systems_and_growth_arc_design_stay_in_context(self):
+        self.write("worldbuilding/systems/看字.md", (
+            "---\nschema-version: 1\nname: 看字\ncontext-scope: core\n---\n\n"
+            "## 限制与代价\n\n看清一个被改的字，就永久忘掉它。\n"
+        ))
+        self.write("worldbuilding/systems/旁支.md", (
+            "---\nschema-version: 1\nname: 旁支\n---\n\n## 分级/规则\n\n只在命中时加载。\n"
+        ))
+        self.write("characters/甲.md", (
+            "---\nname: 甲\nrole: 主角\nstatus: alive\n---\n\n## 性格\n\n只用于临时测试。\n\n"
+            "## 成长弧光\n\n起点：不信任何人。\n- 第1章：在门口第一次开口求助。\n"
+        ))
+        self.cli("new-chapter", 1, "测试章节")
+        chapter = next((self.root / "chapters/drafts").glob("*/*.md"))
+        text = chapter.read_text(encoding="utf-8")
+        chapter.write_text(text.replace('pov: ""', 'pov: 甲').replace('characters: []', 'characters: [甲]'), encoding="utf-8")
+        self.cli("context", "--task", "plan", "--chapter", 1, "--out", ".story-cache/plan.md")
+        package = (self.root / ".story-cache/plan.md").read_text(encoding="utf-8")
+        self.assertIn("看清一个被改的字，就永久忘掉它。", package)
+        self.assertNotIn("只在命中时加载。", package)
+        self.assertIn("起点：不信任何人。", package)
+        self.assertNotIn("第一次开口求助", package)
+
 
 if __name__ == "__main__":
     unittest.main()

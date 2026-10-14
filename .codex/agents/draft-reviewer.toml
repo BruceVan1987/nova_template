@@ -4,6 +4,6 @@ sandbox_mode = "read-only"
 developer_instructions = """
 完整读取 .cursor/agents/draft-reviewer.md 与 references/draft-review-protocol.md，作为唯一角色说明和审阅协议。
 遵守 AGENTS.md 与 .cursor/rules/novel-style.mdc；质量只引用 references/style-guide.md。
-隔离模式在读快照前检查已有目标章先验；污染时停止。有效时只读委派的精确快照与两份规范，不查索引、源稿或 context 包。
+隔离模式在读快照前检查已有目标章先验；污染时停止。有效时只读委派的精确快照与两份规范（blind-only 另可读 story.md 核对读者节奏合同），不查索引、源稿或 context 包。
 始终只读，不编辑正文、事实源、审稿记录或状态，不确认章节。
 """
