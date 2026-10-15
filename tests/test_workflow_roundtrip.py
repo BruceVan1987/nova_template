@@ -75,7 +75,8 @@ class WorkflowRoundtripTests(unittest.TestCase):
         receipt = self.cli("context", "--task", "write", "--chapter", 1, "--out", ".story-cache/write.md").stdout
         self.assertNotIn("逐幕安排", receipt)
         package = (self.root / ".story-cache/write.md").read_text(encoding="utf-8")
-        self.assertIn(VALID_ACT_PLAN.rstrip(), package)
+        self.assertIn("| 1 | 第一日清晨，门外 | 甲先敲门；乙开门后才看见包袱。 |", package)
+        self.assertNotIn("知情变化与触发点", package)
         self.assertIn("落笔前自检", package)
         self.assertNotIn("# [P0] 声口样本", package)
 

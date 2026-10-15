@@ -100,6 +100,29 @@ def latest_chapter() -> int | None:
     return max(numbers) if numbers else None
 
 
+ACT_HEADERS = ("幕次", "时段与地点", "幕初状态", "本幕依次发生的事", "知情变化与触发点", "幕末状态")
+WRITE_COLUMNS = (0, 1, 3)
+
+
+def write_view_complete(card: str, rendered: str) -> bool:
+    """写作视图必须保留每一幕的时段地点与转折，并且不带核对层栏目。"""
+    rows = [
+        [cell.strip() for cell in line.strip().strip("|").split("|")]
+        for line in card.splitlines() if line.strip().startswith("|")
+    ]
+    if len(rows) < 3 or tuple(rows[0]) != ACT_HEADERS:
+        return False
+    if "| 幕次 | 时段与地点 | 本幕依次发生的事 |" not in rendered or "幕初状态" in rendered:
+        return False
+    for row in rows[2:]:
+        if len(row) != len(ACT_HEADERS):
+            return False
+        if "| " + " | ".join(row[i] for i in WRITE_COLUMNS) + " |" not in rendered:
+            return False
+    brief = re.search(r"^\s*-\s*场面简报[：:].*$", card, re.MULTILINE)
+    return not brief or brief.group(0).strip() in rendered
+
+
 def chapter_card_source(chapter: int):
     """读取唯一控制卡原文，供检查实际渲染正文区块。"""
     paths = list((ROOT / "chapters" / "drafts").glob(f"*/{chapter:04d}-*.md"))
@@ -189,8 +212,8 @@ def check_context(task: str, chapter: int, includes=()) -> list[str]:
             result.stdout, re.MULTILINE | re.DOTALL,
         ))
         rendered = rendered_cards[0] if len(rendered_cards) == 1 else None
-        if not source or not rendered or (ROOT / rendered.group(1)).resolve() != source[0].resolve() or rendered.group(2).strip() != f"# 本章控制卡\n\n{source[1]}":
-            errors.append("write 上下文未在实际 P0 正文区块完整原样载入逐幕控制卡")
+        if not source or not rendered or (ROOT / rendered.group(1)).resolve() != source[0].resolve() or not write_view_complete(source[1], rendered.group(2)):
+            errors.append("write 上下文未在实际 P0 正文区块载入完整的逐幕控制卡写作视图")
         if "写作质量规范（开写视图）" not in result.stdout:
             errors.append("write 上下文未使用正向开写视图")
         if "· 当前 arc：" in result.stdout:

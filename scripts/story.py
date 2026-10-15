@@ -90,6 +90,8 @@ DEFAULT_PROJECT_CONFIG = {
         "promises_bytes": 10000,
         "questions_bytes": 6000,
         "style_guide_bytes": 16000,
+        "act_cell_chars": 120,
+        "card_write_view_ratio": 0.25,
         "core_total_bytes": 50000,
         "character_source_protagonist_bytes": 12000,
         "character_source_other_bytes": 10000,
@@ -1211,7 +1213,7 @@ def cmd_ready_chapter(args):
         brief_error = control_card_brief_error(chapter["body"])
         if brief_error:
             raise ValueError(f"第 {args.chapter} 章控制卡不合格：{brief_error}")
-        act_error = control_card_act_plan_error(chapter["body"])
+        act_error = control_card_act_plan_error(chapter["body"]) or control_card_length_error(chapter["body"])
         if act_error:
             raise ValueError(f"第 {args.chapter} 章控制卡不合格：{act_error}")
         register_error = _light_register_gate_error(chapter, _review_prose(chapter))
@@ -1494,7 +1496,7 @@ def cmd_plan_check(args):
                 matches.append(body)
         if len(matches) != 1:
             raise ValueError(f"第 {args.chapter} 章必须有且只有一份草稿，实际找到 {len(matches)} 份")
-        error = control_card_act_plan_error(matches[0])
+        error = control_card_act_plan_error(matches[0]) or control_card_length_error(matches[0])
         if error:
             raise ValueError(f"第 {args.chapter} 章计划未就绪：{error}")
     except (OSError, ValueError) as exc:
@@ -1523,6 +1525,77 @@ def _control_card_view(body):
     card = body.split(marker, 1)[1]
     card = card.split("\n---\n", 1)[0].strip()
     return f"# 本章控制卡\n\n{card}\n" if card else ""
+
+
+# 写作视图只保留落笔需要的因果：场面简报、物件、时间范围和每幕转折。
+# 幕初／幕末状态、知情变化及其余规划栏目属于核对层，留给 plan 与审阅包；
+# 写手读到它们，正文就会复述知情边界、照抄台账缩写。
+CARD_WRITE_BULLETS = ("场面简报", "物件与动作", "本章时间范围")
+CARD_WRITE_COLUMNS = ("幕次", "时段与地点", "本幕依次发生的事")
+
+
+def _control_card_write_view(body):
+    card = _control_card_view(body)
+    if not card:
+        return ""
+    kept = ["# 本章控制卡（写作视图）", ""]
+    for match in re.finditer(r"^\s*-\s*([^：:\n]+)[：:].*$", card, re.MULTILINE):
+        if match.group(1).strip() in CARD_WRITE_BULLETS:
+            kept.append(match.group(0).strip())
+    heading = re.search(r"^###\s+逐幕安排\s*$", card, re.MULTILINE)
+    if heading:
+        section = re.split(r"^#{1,3}\s+", card[heading.end():], maxsplit=1, flags=re.MULTILINE)[0]
+        rows = [
+            [cell.strip() for cell in line.strip().strip("|").split("|")]
+            for line in section.splitlines() if line.strip().startswith("|")
+        ]
+        if rows and tuple(rows[0]) == ACT_PLAN_HEADERS:
+            indexes = [ACT_PLAN_HEADERS.index(col) for col in CARD_WRITE_COLUMNS]
+            kept.extend(["", "### 逐幕安排", ""])
+            for number, row in enumerate(rows):
+                if number == 1:
+                    kept.append("|" + "|".join(["---"] * len(indexes)) + "|")
+                elif len(row) == len(ACT_PLAN_HEADERS):
+                    kept.append("| " + " | ".join(row[i] for i in indexes) + " |")
+    return "\n".join(kept).strip() + "\n"
+
+
+def _target_chapter_length():
+    path = ROOT / "story.md"
+    if not path.exists():
+        return 0
+    fm, _, _ = read_doc(path)
+    try:
+        return int(fm.get("target-chapter-length") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def control_card_length_error(body):
+    """控制卡篇幅门槛：逐幕表单格与写作视图总长。只核长度，不判断内容。"""
+    limit = LIMIT_CONFIG.get("act_cell_chars", 120)
+    card = _control_card_view(body)
+    heading = re.search(r"^###\s+逐幕安排\s*$", card, re.MULTILINE)
+    if heading:
+        section = re.split(r"^#{1,3}\s+", card[heading.end():], maxsplit=1, flags=re.MULTILINE)[0]
+        rows = [
+            [cell.strip() for cell in line.strip().strip("|").split("|")]
+            for line in section.splitlines() if line.strip().startswith("|")
+        ]
+        for number, row in enumerate(rows[2:], start=1):
+            for header, cell in zip(ACT_PLAN_HEADERS[1:], row[1:]):
+                size = len(re.sub(r"\s", "", cell))
+                if size > limit:
+                    return (f"「逐幕安排」第 {number} 幕的「{header}」{size} 字，超过 {limit} 字；"
+                            "只写谁作出什么选择、局面因此怎样变，动作细节和台词留给正文")
+    target = _target_chapter_length()
+    ratio = LIMIT_CONFIG.get("card_write_view_ratio", 0.25)
+    if target and ratio:
+        size = len(re.sub(r"\s", "", _control_card_write_view(body)))
+        if size > target * ratio:
+            return (f"控制卡写作视图 {size} 字，超过目标单章字数 {target} 的 {int(ratio * 100)}%；"
+                    "压缩场面简报与每幕转折，细节留给正文")
+    return None
 
 
 def _extract_direction(text):
@@ -2370,7 +2443,7 @@ def build_context(task, chapter, focuses=None, includes=None, max_chars=None, vo
         if not target:
             raise ValueError(f"第 {chapter} 章没有控制卡；请先创建草稿并锁定逐幕计划，再生成写作包")
         _hydrate_chapter(target)
-        act_error = control_card_act_plan_error(target["body"])
+        act_error = control_card_act_plan_error(target["body"]) or control_card_length_error(target["body"])
         if act_error:
             raise ValueError(f"第 {chapter} 章不可开写：{act_error}")
 
@@ -2558,11 +2631,11 @@ def build_context(task, chapter, focuses=None, includes=None, max_chars=None, vo
         targets.append(ContextCandidate("TARGET", "目标章节全文", target["path"], target["text"], "目标正文，不计辅助预算"))
     elif target and task in ("plan", "write"):
         _hydrate_chapter(target)
-        control_card = _control_card_view(target["body"])
+        control_card = _control_card_write_view(target["body"]) if task == "write" else _control_card_view(target["body"])
         if control_card:
             candidates.append(ContextCandidate(
                 "P0", "目标章正向控制卡" if task == "write" else "目标章控制卡", target["path"], control_card,
-                "逐幕安排完整原样载入；开写只读锁定场景材料，不载入整份卷纲"
+                "开写只载写作视图（场面简报、物件、每幕转折）；知情与状态栏留在核对层"
                 if task == "write" else "已有计划完整原样载入，供继续讨论与锁定",
                 order=2 if task == "write" else 0,
             ))
@@ -2821,7 +2894,7 @@ def _missing_required_chapter_materials(task, chapter, fm, selected):
         target = _chapter_by_number(_load_chapters(full=False), chapter)
         if target:
             _hydrate_chapter(target)
-            card = _control_card_view(target["body"])
+            card = _control_card_write_view(target["body"]) if task == "write" else _control_card_view(target["body"])
             if card:
                 label = "目标章正向控制卡" if task == "write" else "目标章控制卡"
                 cards = [candidate for candidate in selected if candidate.label == label]

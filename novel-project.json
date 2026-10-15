@@ -19,7 +19,9 @@
     "character_source_protagonist_bytes": 12000,
     "character_source_other_bytes": 10000,
     "character_hot_protagonist_bytes": 8500,
-    "character_hot_other_bytes": 6000
+    "character_hot_other_bytes": 6000,
+    "act_cell_chars": 120,
+    "card_write_view_ratio": 0.25
   },
   "writing": {
     "target_total_words": 0
