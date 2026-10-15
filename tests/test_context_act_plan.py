@@ -37,7 +37,13 @@ class ContextActPlanTests(unittest.TestCase):
                 self.assertEqual(len(cards), 1)
                 self.assertEqual(cards[0].priority, "P0")
                 self.assertEqual(cards[0].path, path)
-                self.assertIn(VALID_ACT_PLAN.rstrip(), cards[0].content)
+                if task == "write":
+                    self.assertIn("| 1 | 第一日清晨，门外 | 甲先敲门；乙开门后才看见包袱。 |", cards[0].content)
+                    self.assertIn("| 2 | 第一日午前，屋内 | 乙递出空碗；甲把自己的毡抱走。 |", cards[0].content)
+                    self.assertNotIn("幕初状态", cards[0].content)
+                    self.assertNotIn("无新增知情", cards[0].content)
+                else:
+                    self.assertIn(VALID_ACT_PLAN.rstrip(), cards[0].content)
                 # 断言渲染的正文区块，不能仅凭纳入清单里的标签算成功。
                 rendered = output.split(f"# [P0] {label}\n\n", 1)[1]
                 self.assertIn(cards[0].content.rstrip(), rendered)
@@ -45,13 +51,25 @@ class ContextActPlanTests(unittest.TestCase):
                 self.assertFalse(any(candidate.label == label for candidate in omitted))
                 required = sum(candidate.size for candidate in selected if candidate.priority == "P0")
                 tight_output, _, _ = self.build(task, max_chars=required)
-                self.assertIn(VALID_ACT_PLAN.rstrip(), tight_output)
+                self.assertIn(cards[0].content.rstrip(), tight_output)
                 with self.assertRaisesRegex(ValueError, "P0 必需上下文.*超过预算"):
                     self.build(task, max_chars=required - 1)
         output, selected, _ = self.build("write")
         labels = [candidate.label for candidate in sorted(selected, key=lambda candidate: candidate.order)]
         self.assertEqual(labels[-4:], ["上章结尾原文", "目标章正向控制卡", "声口样本", "落笔前自检"])
         self.assertTrue(self.story._self_check_tail_ok(selected))
+
+    def test_card_length_limits_block_writing_until_trimmed(self):
+        long_event = "甲先敲门" + "，又敲了一下" * 30 + "。"
+        self.set_card(VALID_ACT_PLAN.replace("甲先敲门；乙开门后才看见包袱。", long_event))
+        with self.assertRaisesRegex(ValueError, "第 1 幕的「本幕依次发生的事」.*超过 120 字"):
+            self.build("write")
+        self.set_card()
+        self.build("write")
+        story = self.root / "story.md"
+        story.write_text(story.read_text(encoding="utf-8").replace("status: active", "status: active\ntarget-chapter-length: 400"), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "写作视图 \\d+ 字，超过目标单章字数 400 的 25%"):
+            self.build("write")
 
     def test_revise_full_source_retains_every_act_even_when_table_needs_repair(self):
         for acts in (VALID_ACT_PLAN, VALID_ACT_PLAN.replace("| 2 |", "| 9 |"), ""):
@@ -217,7 +235,7 @@ class ContextActPlanTests(unittest.TestCase):
         audit = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(audit)
         output, _, _ = self.build("write")
-        second_act = VALID_ACT_PLAN.splitlines()[-1]
+        second_act = "| 2 | 第一日午前，屋内 | 乙递出空碗；甲把自己的毡抱走。 |"
         cases = (
             (output, False),
             (output.replace(second_act + "\n", ""), True),
@@ -228,7 +246,7 @@ class ContextActPlanTests(unittest.TestCase):
             for rendered, malformed in cases:
                 with self.subTest(malformed=malformed), mock.patch.object(audit.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout=rendered, stderr="")):
                     errors = audit.check_context("write", 2)
-                    self.assertEqual(any("完整原样载入逐幕控制卡" in error for error in errors), malformed, errors)
+                    self.assertEqual(any("逐幕控制卡写作视图" in error for error in errors), malformed, errors)
 
     def context_args(self, out, **overrides):
         values = dict(task="write", chapter=2, focus=[], include=[], max_chars=self.story.CONTEXT_CONFIG["default_max_chars"], voice_chapter=None, out=out)
@@ -242,7 +260,7 @@ class ContextActPlanTests(unittest.TestCase):
         with redirect_stdout(stdout):
             self.assertEqual(self.story.cmd_context(self.context_args(relative)), 0)
         self.assertEqual((self.root / relative).read_text(encoding="utf-8"), expected)
-        self.assertIn(VALID_ACT_PLAN.rstrip(), expected)
+        self.assertIn("| 2 | 第一日午前，屋内 | 乙递出空碗；甲把自己的毡抱走。 |", expected)
         self.assertEqual(stdout.getvalue(), f"已生成 {relative}\n")
         self.assertNotIn("逐幕安排", stdout.getvalue())
 
