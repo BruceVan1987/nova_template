@@ -1490,13 +1490,17 @@ def cmd_plan_check(args):
     """不写缓存或记录；缺项不能靠生成一个改稿包绕过。"""
     try:
         matches = []
+        fm_status = None
         for path in iter_chapter_files():
             fm, body, _ = read_doc(path)
             if fm.get("chapter") == args.chapter:
                 matches.append(body)
+                fm_status = fm.get("status")
         if len(matches) != 1:
             raise ValueError(f"第 {args.chapter} 章必须有且只有一份草稿，实际找到 {len(matches)} 份")
-        error = control_card_act_plan_error(matches[0]) or control_card_length_error(matches[0])
+        error = control_card_act_plan_error(matches[0])
+        if not error and fm_status != "已确认":
+            error = control_card_length_error(matches[0])
         if error:
             raise ValueError(f"第 {args.chapter} 章计划未就绪：{error}")
     except (OSError, ValueError) as exc:
@@ -2443,7 +2447,10 @@ def build_context(task, chapter, focuses=None, includes=None, max_chars=None, vo
         if not target:
             raise ValueError(f"第 {chapter} 章没有控制卡；请先创建草稿并锁定逐幕计划，再生成写作包")
         _hydrate_chapter(target)
-        act_error = control_card_act_plan_error(target["body"]) or control_card_length_error(target["body"])
+        act_error = control_card_act_plan_error(target["body"])
+        # 篇幅门槛只管新写与未确认改稿；已确认旧章不追溯。
+        if not act_error and target["fm"].get("status") != "已确认":
+            act_error = control_card_length_error(target["body"])
         if act_error:
             raise ValueError(f"第 {chapter} 章不可开写：{act_error}")
 

@@ -64,6 +64,10 @@ class ContextActPlanTests(unittest.TestCase):
         self.set_card(VALID_ACT_PLAN.replace("甲先敲门；乙开门后才看见包袱。", long_event))
         with self.assertRaisesRegex(ValueError, "第 1 幕的「本幕依次发生的事」.*超过 120 字"):
             self.build("write")
+        path = self.root / "chapters/drafts/卷一/0002-测试.md"
+        path.write_text(path.read_text(encoding="utf-8").replace("status: draft", "status: 已确认"), encoding="utf-8")
+        self.build("write")
+        path.write_text(path.read_text(encoding="utf-8").replace("status: 已确认", "status: draft"), encoding="utf-8")
         self.set_card()
         self.build("write")
         story = self.root / "story.md"
