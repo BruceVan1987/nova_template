@@ -667,6 +667,7 @@ promises-paid: []
 
 - 本章时间范围：
 - 场面简报：
+- 人物画面：
 - 已定目标：
 - 物件与动作：
 - 施压与阻力：
@@ -1531,10 +1532,10 @@ def _control_card_view(body):
     return f"# 本章控制卡\n\n{card}\n" if card else ""
 
 
-# 写作视图只保留落笔需要的因果：场面简报、物件、时间范围和每幕转折。
+# 写作视图只保留落笔需要的因果：场面简报、人物画面、物件、时间范围和每幕转折。
 # 幕初／幕末状态、知情变化及其余规划栏目属于核对层，留给 plan 与审阅包；
 # 写手读到它们，正文就会复述知情边界、照抄台账缩写。
-CARD_WRITE_BULLETS = ("场面简报", "物件与动作", "本章时间范围")
+CARD_WRITE_BULLETS = ("场面简报", "人物画面", "物件与动作", "本章时间范围")
 CARD_WRITE_COLUMNS = ("幕次", "时段与地点", "本幕依次发生的事")
 
 
@@ -2642,7 +2643,7 @@ def build_context(task, chapter, focuses=None, includes=None, max_chars=None, vo
         if control_card:
             candidates.append(ContextCandidate(
                 "P0", "目标章正向控制卡" if task == "write" else "目标章控制卡", target["path"], control_card,
-                "开写只载写作视图（场面简报、物件、每幕转折）；知情与状态栏留在核对层"
+                "开写只载写作视图（场面简报、人物画面、物件、每幕转折）；知情与状态栏留在核对层"
                 if task == "write" else "已有计划完整原样载入，供继续讨论与锁定",
                 order=2 if task == "write" else 0,
             ))

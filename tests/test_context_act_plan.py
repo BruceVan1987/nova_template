@@ -20,7 +20,8 @@ class ContextActPlanTests(unittest.TestCase):
     source_candidates = timeline_fixture.ContextTimelineTests.source_candidates
 
     def card(self, acts=VALID_ACT_PLAN):
-        return "## 本章控制卡\n\n- 场面简报：甲先敲门，等回应后才进门。\n\n" + acts + "\n---\n\n他提起包袱。\n"
+        return ("## 本章控制卡\n\n- 场面简报：甲先敲门，等回应后才进门。\n"
+                "- 人物画面：甲背着一只补丁摞补丁的包袱。\n- 落点：乙收下包袱。\n\n" + acts + "\n---\n\n他提起包袱。\n")
 
     def set_card(self, acts=VALID_ACT_PLAN):
         path = self.root / "chapters/drafts/卷一/0002-测试.md"
@@ -41,6 +42,8 @@ class ContextActPlanTests(unittest.TestCase):
                     self.assertIn("| 1 | 第一日清晨，门外 | 甲先敲门；乙开门后才看见包袱。 |", cards[0].content)
                     self.assertIn("| 2 | 第一日午前，屋内 | 乙递出空碗；甲把自己的毡抱走。 |", cards[0].content)
                     self.assertNotIn("幕初状态", cards[0].content)
+                    self.assertIn("- 人物画面：甲背着一只补丁摞补丁的包袱。", cards[0].content)
+                    self.assertNotIn("落点", cards[0].content)
                     self.assertNotIn("无新增知情", cards[0].content)
                 else:
                     self.assertIn(VALID_ACT_PLAN.rstrip(), cards[0].content)
