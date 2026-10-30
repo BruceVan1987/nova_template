@@ -52,6 +52,8 @@ CHAPTERS_INDEX_PATH = CHAPTERS_DIR / "_index.md"
 CHARACTERS_DIR = ROOT / "characters"
 WORLDBUILDING_DIR = ROOT / "worldbuilding"
 PLOT_ARCS_DIR = ROOT / "plot" / "arcs"
+# 规划推理链：写手不读 plot/，只进 plan 与 review 包，供核对写手落笔前的盘点。
+PLOT_LOGIC_DIR = ROOT / "plot" / "logic"
 TIMELINE_PATH = ROOT / "plot" / "timeline.md"
 CHARACTER_PIPELINE_PATH = ROOT / "plot" / "character-pipeline.md"
 PROMISES_INDEX = ROOT / "continuity" / "promises" / "_index.md"
@@ -2666,6 +2668,14 @@ def build_context(task, chapter, focuses=None, includes=None, max_chars=None, vo
                 "P0", "落笔前自检", QUALITY_RULES, self_check,
                 "唯一规范第 1 节原文；落笔前最后读，排在声口样本之后",
                 order=4, merge_into_quality_rules=False,
+            ))
+
+    if target and task in ("plan", "review"):
+        logic_path = PLOT_LOGIC_DIR / f"{target['fm'].get('chapter') or 0:04d}.md"
+        if logic_path.exists():
+            candidates.append(ContextCandidate(
+                "P0", "规划推理链（核对层）", logic_path, logic_path.read_text(encoding="utf-8"),
+                "大场面各方为什么这样做；只供规划与核对，不进写作包",
             ))
 
     if arc and task != "write":
